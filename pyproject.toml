@@ -40,6 +40,9 @@ dependencies = [
     "tqdm>=4.65.0",
 ]
 
+[project.scripts]
+fabricpc-fuzz = "fabricpc.fuzzer.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/trueagi-io/FabricPC"
 Repository = "https://github.com/trueagi-io/FabricPC"
