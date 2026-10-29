@@ -27,6 +27,10 @@ ROLE_OUTPUT = "output"
 ROLES = (ROLE_INPUT, ROLE_HIDDEN, ROLE_OUTPUT)
 
 
+INPUT_NAME = "input"
+OUTPUT_NAME = "output"
+
+
 class SpecError(ValueError):
     """A ``GraphSpec`` is structurally malformed.
 
@@ -355,3 +359,26 @@ def _check_keys(data: Mapping[str, Any], required: set, cls: type) -> None:
             f"{cls.__name__} has unknown key(s) {sorted(unknown)}; "
             f"allowed: {sorted(allowed)}"
         )
+
+
+@dataclass(frozen=True)
+class Skeleton:
+    """Untyped topology produced by the topology stage.
+
+    Attributes:
+        hidden: Hidden node names, in the order they should be declared.
+        edges: Directed ``(source, target)`` pairs over ``input``, ``output``
+            and the hidden names. Slots are chosen later by the assign stage.
+        input: Name of the input node.
+        output: Name of the output node.
+    """
+
+    hidden: Tuple[str, ...]
+    edges: Tuple[Tuple[str, str], ...]
+    input: str = INPUT_NAME
+    output: str = OUTPUT_NAME
+
+    @property
+    def all_nodes(self) -> Tuple[str, ...]:
+        """Input, hidden nodes, then output."""
+        return (self.input, *self.hidden, self.output)

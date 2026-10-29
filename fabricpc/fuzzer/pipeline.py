@@ -38,37 +38,14 @@ from fabricpc.fuzzer.spec import (
     ROLE_OUTPUT,
     EdgeSpec,
     GraphSpec,
+    INPUT_NAME,
+    OUTPUT_NAME,
     NodeSpec,
+    Skeleton,
 )
-
-INPUT_NAME = "input"
-OUTPUT_NAME = "output"
 
 
 # --------------------------------------------------------------------- types
-@dataclass(frozen=True)
-class Skeleton:
-    """Untyped topology produced by the topology stage.
-
-    Attributes:
-        hidden: Hidden node names, in the order they should be declared.
-        edges: Directed ``(source, target)`` pairs over ``input``, ``output``
-            and the hidden names. Slots are chosen later by the assign stage.
-        input: Name of the input node.
-        output: Name of the output node.
-    """
-
-    hidden: Tuple[str, ...]
-    edges: Tuple[Tuple[str, str], ...]
-    input: str = INPUT_NAME
-    output: str = OUTPUT_NAME
-
-    @property
-    def all_nodes(self) -> Tuple[str, ...]:
-        """Input, hidden nodes, then output."""
-        return (self.input, *self.hidden, self.output)
-
-
 @dataclass(frozen=True)
 class ValidationIssue:
     """One reason a graph was rejected.
