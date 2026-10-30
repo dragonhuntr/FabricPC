@@ -15,11 +15,12 @@ A graph that fails validation is retried with fresh, still reproducible,
 randomness up to ``config.max_attempts`` times. Exact duplicates (same
 fingerprint) are skipped so every returned graph is distinct.
 
-The stage functions in this module (:func:`chain_topology`,
-:func:`linear_assign`, :func:`check_builds`) are simple stand-ins so the whole
-pipeline, CLI and tests run today. Teammates replace them by passing their own
-functions to :func:`generate`, or by changing the defaults in
-:data:`DEFAULT_STAGES` once their modules land.
+The topology stage is :func:`fabricpc.fuzzer.topology.random_dag_topology`.
+:func:`chain_topology` stays as the shape of a sequential baseline. The other
+stage functions here (:func:`linear_assign`, :func:`check_builds`) are simple
+stand-ins so the whole pipeline, CLI and tests run today. Teammates replace
+them by passing their own functions to :func:`generate`, or by changing the
+defaults in :data:`DEFAULT_STAGES` once their modules land.
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from fabricpc.fuzzer.spec import (
     NodeSpec,
     Skeleton,
 )
+from fabricpc.fuzzer.topology import random_dag_topology
 
 
 # --------------------------------------------------------------------- types
@@ -126,7 +128,8 @@ def chain_topology(config: GeneratorConfig, rng: np.random.Generator) -> Skeleto
     """Stand-in topology: ``input -> h0 -> h1 -> ... -> output``.
 
     Picks the number of hidden nodes from ``config.num_nodes``. This is also
-    the shape of a sequential baseline. Replaced by the real generator.
+    the shape of a sequential baseline. The default topology stage is
+    :func:`fabricpc.fuzzer.topology.random_dag_topology`.
     """
     lo, hi = config.num_nodes
     n = int(rng.integers(lo, hi + 1))
@@ -196,7 +199,7 @@ def check_builds(spec: GraphSpec) -> ValidationResult:
 
 
 DEFAULT_STAGES: Dict[str, Callable] = {
-    "topology": chain_topology,
+    "topology": random_dag_topology,
     "assign": linear_assign,
     "validate": check_builds,
 }
