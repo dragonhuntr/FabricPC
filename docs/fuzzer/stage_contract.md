@@ -44,6 +44,10 @@ Expected of every skeleton:
 
 Slots are **not** chosen here. That is Hai's job.
 
+Implemented by `random_dag_topology` in `fabricpc/fuzzer/topology.py`, now
+the default. `skeleton_issues(skeleton, config)` lists every rule above that
+a skeleton breaks.
+
 ## Stage 2: assign (Hai)
 
 ```python
@@ -115,9 +119,13 @@ stage automatically once it's the default.
 
 ## Open questions for the team
 
-- Evan: should the topology model (ER / BA / WS / random DAG) be a config
-  setting, e.g. `topology_model = "erdos_renyi"`? If yes, Adzfar adds it to
-  `GeneratorConfig`.
+- Evan → Adzfar: the topology model is read from
+  `constraints["topology_model"]` (`random_dag` default, `erdos_renyi`,
+  `barabasi_albert`, `watts_strogatz`). Should it become a real
+  `GeneratorConfig` field so it is validated up front?
+- Evan → Adzfar: SR-F-04.3/04.4 need out-degree limits, but `GeneratorConfig`
+  has no `out_degree` setting. Can it be added (same shape as `in_degree`)?
+  Until then only in-degree limits are enforced and tested.
 - Hai: does every node type's shape rule fit `NodeSpec` as-is, or do some types
   need extra fields (kernel size, number of heads)? Right now those would go in
   `NodeSpec.config`.
