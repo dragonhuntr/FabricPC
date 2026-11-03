@@ -4,6 +4,7 @@ Most tests swap in stub train/eval functions so they run in milliseconds; a
 few train for real on a tiny synthetic task.
 """
 
+import json
 import time
 
 import numpy as np
@@ -12,10 +13,12 @@ import pytest
 from fabricpc.fuzzer import GeneratorConfig, generate
 from fabricpc.fuzzer.baselines import sequential_baseline
 from fabricpc.fuzzer.evaluate import (
+    CSV_COLUMNS,
     EvalSettings,
     PeakMemory,
     evaluate_batch,
     evaluate_graph,
+    read_csv,
     synthetic_data_factory,
 )
 from fabricpc.fuzzer.pipeline import chain_topology, linear_assign
@@ -260,3 +263,40 @@ def test_synthetic_data_matches_spec_shapes():
     x, y = next(iter(train))
     assert x.shape == (4, *IN) and y.shape == (4, 3)
     assert len(train) == 3
+
+
+# ------------------------------------------------------------ SR-F-12.6
+def test_csv_has_one_row_per_graph_and_model(tmp_path):
+    """SR-F-12.6: results are written as CSV, one row per graph and model."""
+    specs = generate(small_config())
+    report = evaluate_batch(specs, seeded_factory, Recorder().settings())
+    path = report.to_csv(tmp_path / "out" / "results.csv")
+    rows = read_csv(path)
+    assert len(rows) == 2 * len(specs)
+    assert [(r["graph_id"], r["model"]) for r in rows] == [
+        (r.graph_id, r.model) for r in report
+    ]
+    assert list(rows[0]) == list(CSV_COLUMNS)
+
+
+def test_csv_round_trips_to_plain_dicts(tmp_path):
+    report = evaluate_batch([dag_spec()], seeded_factory, Recorder().settings())
+    rows = read_csv(report.to_csv(tmp_path / "r.csv"))
+    expected = report.to_dicts()
+    for got, want in zip(rows, expected):
+        assert got.keys() == want.keys()
+        for key in want:
+            if isinstance(want[key], float):
+                assert got[key] == pytest.approx(want[key])
+            else:
+                assert got[key] == want[key], key
+    assert rows[0]["graph_seed"] is None
+    assert json.loads(json.dumps(rows)) == rows
+
+
+def test_results_fit_in_generator_constraints(tmp_path):
+    report = evaluate_batch([dag_spec()], seeded_factory, Recorder().settings())
+    rows = read_csv(report.to_csv(tmp_path / "r.csv"))
+    config = small_config(constraints={"evaluation": rows})
+    config.validate()
+    assert GeneratorConfig.from_dict(config.to_dict()).constraints["evaluation"] == rows

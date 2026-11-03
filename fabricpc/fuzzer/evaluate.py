@@ -28,11 +28,24 @@ built loaders from the same call, so they see the same batch stream.
 
 from __future__ import annotations
 
+import csv
+import json
 import math
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import jax
 import numpy as np
@@ -52,6 +65,42 @@ from fabricpc.training import evaluate as fabricpc_evaluate
 from fabricpc.training import train as fabricpc_train
 
 GENERATED = "generated"
+CSV_COLUMNS = (
+    "graph_id",
+    "model",
+    "fingerprint",
+    "graph_seed",
+    "training_seeds",
+    "accuracies",
+    "accuracy_mean",
+    "accuracy_se",
+    "peak_memory_bytes",
+    "memory_source",
+    "train_time_mean_s",
+    "train_times_s",
+    "num_nodes",
+    "num_edges",
+    "num_params",
+    "is_cyclic",
+    "layer_sizes",
+    "connections",
+)
+_INT_COLUMNS = {
+    "graph_id",
+    "graph_seed",
+    "peak_memory_bytes",
+    "num_nodes",
+    "num_edges",
+    "num_params",
+}
+_FLOAT_COLUMNS = {"accuracy_mean", "accuracy_se", "train_time_mean_s"}
+_LIST_COLUMNS = {
+    "training_seeds",
+    "accuracies",
+    "train_times_s",
+    "layer_sizes",
+    "connections",
+}
 DataFactory = Callable[[int], Tuple[Any, Any]]
 
 
@@ -362,6 +411,56 @@ class EvaluationReport:
 
     def __len__(self) -> int:
         return len(self.results)
+
+    def to_dicts(self) -> List[Dict[str, Any]]:
+        """One JSON-safe dict per row, the same values :func:`read_csv` returns."""
+        return [r.to_dict() for r in self.results]
+
+    def to_csv(self, path: Union[str, Path]) -> Path:
+        """Write one row per graph and model. List columns are JSON-encoded."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS)
+            writer.writeheader()
+            for row in self.to_dicts():
+                writer.writerow({k: _encode_cell(k, row[k]) for k in CSV_COLUMNS})
+        return path
+
+
+def _encode_cell(column: str, value: Any) -> str:
+    if value is None:
+        return ""
+    if column in _LIST_COLUMNS:
+        return json.dumps(value)
+    return str(value)
+
+
+def _decode_cell(column: str, text: str) -> Any:
+    if text == "":
+        return None
+    if column in _LIST_COLUMNS:
+        return json.loads(text)
+    if column in _INT_COLUMNS:
+        return int(text)
+    if column in _FLOAT_COLUMNS:
+        return float(text)
+    if column == "is_cyclic":
+        return text == "True"
+    return text
+
+
+def read_csv(path: Union[str, Path]) -> List[Dict[str, Any]]:
+    """Read a results CSV back as plain, JSON-safe dicts with their types.
+
+    The rows are ordinary data, so they can be stored in
+    ``GeneratorConfig.constraints`` for a later feedback loop.
+    """
+    with Path(path).open(newline="") as fh:
+        return [
+            {k: _decode_cell(k, v) for k, v in row.items()}
+            for row in csv.DictReader(fh)
+        ]
 
 
 def evaluate_batch(
