@@ -45,6 +45,8 @@ from fabricpc.fuzzer.spec import (
     Skeleton,
 )
 from fabricpc.fuzzer.topology import random_dag_topology
+from fabricpc.fuzzer.assign import typed_assign
+from fabricpc.fuzzer.validity import validate_spec
 
 
 # --------------------------------------------------------------------- types
@@ -200,8 +202,8 @@ def check_builds(spec: GraphSpec) -> ValidationResult:
 
 DEFAULT_STAGES: Dict[str, Callable] = {
     "topology": random_dag_topology,
-    "assign": linear_assign,
-    "validate": check_builds,
+    "assign": typed_assign,
+    "validate": validate_spec,
 }
 
 
