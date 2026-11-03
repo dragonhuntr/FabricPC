@@ -87,10 +87,30 @@ specs = generate(config)                  # or load_batch("runs/demo")
 structure = to_fabricpc(spec)             # GraphStructure for initialize_params/train
 ```
 
-Baselines can be written as `GraphSpec`s too (a chain is `chain_topology` +
-`linear_assign`), so baselines and generated graphs go through the same code
-path and serialize the same way. Feedback (UR-F-12) goes in through
-`GeneratorConfig.constraints`, a free-form JSON dict that every stage can read.
+Baselines are `GraphSpec`s too, so baselines and generated graphs go through
+the same code path and serialize the same way.
+
+Implemented in `fabricpc/fuzzer/baselines.py` and `fabricpc/fuzzer/evaluate.py`:
+
+```python
+report = evaluate_batch(specs, data_factory, EvalSettings(training_seeds=(0, 1, 2)))
+report.to_csv("runs/demo/results.csv")   # one row per graph and model
+rows = read_csv("runs/demo/results.csv")  # plain dicts
+```
+
+- `sequential_baseline(spec)` keeps the graph's input and output nodes and
+  puts one `Linear` layer per hidden node (same width and activation) in a chain.
+- Each model is trained once per training seed. Training seeds only seed
+  parameter init, batch order and inference, never the graph.
+- Per model: mean test accuracy, its standard error over seeds, peak memory,
+  training time, parameter count, layer sizes and connections.
+- `data_factory(seed) -> (train_loader, test_loader)`, as in
+  `fabricpc.experiments`. `synthetic_data_factory` gives a small task for tests;
+  `examples/fuzzer_baseline_mnist.py` runs the MNIST comparison.
+
+Feedback (UR-F-12) goes in through `GeneratorConfig.constraints`, a free-form
+JSON dict that every stage can read. `read_csv` rows fit there as-is; no
+steering is built yet (out of scope per Report 1.5).
 
 ## Rules for every stage
 
@@ -131,6 +151,6 @@ stage automatically once it's the default.
   `NodeSpec.config`.
 - Hai: should validate run a short training step (slower, catches NaNs), or
   should that be a separate opt-in check?
-- Wai Soon: what should a saved result look like? We can add an
-  `evaluation` block next to `spec` in the JSON file so a graph and its scores
-  travel together.
+- Wai Soon: results are a CSV for now, linked to graphs by `fingerprint` and
+  `graph_id`. Should they also go in an `evaluation` block next to `spec` in
+  each graph's JSON file?

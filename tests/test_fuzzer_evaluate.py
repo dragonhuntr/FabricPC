@@ -300,3 +300,24 @@ def test_results_fit_in_generator_constraints(tmp_path):
     config = small_config(constraints={"evaluation": rows})
     config.validate()
     assert GeneratorConfig.from_dict(config.to_dict()).constraints["evaluation"] == rows
+
+
+@pytest.mark.slow
+def test_end_to_end_generate_train_compare(tmp_path):
+    """Generate, save, reload, train both models for real, write the CSV."""
+    from fabricpc.fuzzer import load_batch, save_batch
+
+    config = small_config(num_graphs=2, num_nodes=(2, 3), hidden_sizes=(16,))
+    save_batch(generate(config), tmp_path / "batch", config=config.to_dict())
+    specs = load_batch(tmp_path / "batch")
+    data = synthetic_data_factory(IN, 3, n_train=192, n_test=96, batch_size=32)
+    settings = EvalSettings(num_epochs=3, learning_rate=1e-2)
+
+    report = evaluate_batch(specs, data, settings)
+    rows = read_csv(report.to_csv(tmp_path / "results.csv"))
+
+    assert len(rows) == 4
+    for row in rows:
+        assert row["training_seeds"] == [0, 1, 2]
+        assert row["accuracy_mean"] > 0.5  # chance is 1/3
+        assert row["peak_memory_bytes"] > 0 and row["train_time_mean_s"] > 0

@@ -13,6 +13,9 @@ Quick start::
     save_batch(specs, "runs/demo", config=config.to_dict())
     structure = to_fabricpc(specs[0])   # ready for initialize_params / train
 
+    report = evaluate_batch(specs, data_factory)   # vs sequential baselines
+    report.to_csv("runs/demo/results.csv")
+
 Or from the shell::
 
     python -m fabricpc.fuzzer generate --config fuzz.toml --out runs/demo
@@ -41,29 +44,49 @@ from fabricpc.fuzzer.pipeline import (  # noqa: E402
     generate,
     generate_one,
 )
+from fabricpc.fuzzer.baselines import (  # noqa: E402
+    describe_architecture,
+    sequential_baseline,
+)
+from fabricpc.fuzzer.evaluate import (  # noqa: E402
+    EvalSettings,
+    EvaluationReport,
+    ModelResult,
+    evaluate_batch,
+    evaluate_graph,
+    read_csv,
+)
 
 __all__ = [
     "__version__",
     "BuildError",
     "ConfigError",
+    "EvalSettings",
+    "EvaluationReport",
     "EdgeSpec",
     "GenerationError",
     "GenerationReport",
     "GeneratorConfig",
     "GraphSpec",
+    "ModelResult",
     "NodeSpec",
     "SerializationError",
     "Skeleton",
     "SpecError",
     "ValidationIssue",
     "ValidationResult",
+    "describe_architecture",
     "dumps",
+    "evaluate_batch",
+    "evaluate_graph",
     "generate",
     "generate_one",
     "load",
     "load_batch",
     "loads",
+    "read_csv",
     "save",
     "save_batch",
+    "sequential_baseline",
     "to_fabricpc",
 ]
