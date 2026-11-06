@@ -132,7 +132,12 @@ def type_fits(node_type: str, in_degree: int) -> bool:
 
 
 def _pick_types(skeleton, sources_of, config, rng) -> Dict[str, str]:
+    clamped = {node.role: node for node in config.clamped_nodes}
     types = {skeleton.input: INPUT_TYPE, skeleton.output: OUTPUT_TYPE}
+    if "input" in clamped:
+        types[skeleton.input] = clamped["input"].node_type
+    if "output" in clamped:
+        types[skeleton.output] = clamped["output"].node_type
     for name in skeleton.hidden:
         k = len(sources_of[name])
         feasible = [t for t in config.node_types if type_fits(t, k)]

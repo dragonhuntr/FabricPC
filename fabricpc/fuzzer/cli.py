@@ -95,7 +95,7 @@ def _cmd_init_config(args: argparse.Namespace) -> int:
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
-    from fabricpc.fuzzer.pipeline import GenerationError, GenerationReport, generate
+    from fabricpc.fuzzer.pipeline import GenerationReport, generate
 
     config = (
         GeneratorConfig.from_file(args.config) if args.config else GeneratorConfig()
@@ -110,11 +110,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     config.validate()
 
     report = GenerationReport()
-    try:
-        specs = generate(config, report=report)
-    except GenerationError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return EXIT_FAILED
+    specs = generate(config, report=report)
     paths = save_batch(
         specs, args.out, config=config.to_dict(), overwrite=args.overwrite
     )
@@ -126,11 +122,12 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 f"cyclic={str(spec.is_cyclic):<5} {spec.fingerprint()[:12]}"
             )
     print(
-        f"generated {len(specs)} graph(s) in {args.out} "
+        f"made {len(specs)} of {config.num_graphs}, most common failure: "
+        f"{report.most_common_failure or 'none'}; saved to {args.out} "
         f"(seed={config.seed}, attempts={sum(report.attempts)}, "
         f"rejected={len(report.rejected)}, duplicates={report.duplicates_skipped})"
     )
-    return EXIT_OK
+    return EXIT_OK if specs else EXIT_FAILED
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:

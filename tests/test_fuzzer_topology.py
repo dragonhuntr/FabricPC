@@ -1,7 +1,7 @@
 """Tests for fabricpc.fuzzer.topology: the random DAG topology stage.
 
-Out-degree limits (SR-F-04.3, SR-F-04.4) are not tested: GeneratorConfig has
-no out-degree setting yet (open question in docs/fuzzer/stage_contract.md).
+Out-degree limits (SR-F-04.3, SR-F-04.4) and clamped-node degrees
+(SR-F-05.1 to SR-F-05.3) are tested in test_fuzzer_clamped.py.
 """
 
 import graphlib
@@ -16,6 +16,7 @@ from fabricpc.fuzzer.seeding import graph_rng
 from fabricpc.fuzzer.topology import (
     TOPOLOGY_MODELS,
     TopologyError,
+    _edge_window,
     is_chain,
     random_dag_topology,
     skeleton_issues,
@@ -233,10 +234,16 @@ def test_property_valid_configs_give_valid_skeletons(cfg, seed):
         cfg.validate()
     except Exception:
         return  # config layer rejects it; nothing to generate
+    # A valid setting can still be infeasible for every hidden count in range
+    # (for example in_degree=(2,2) with num_nodes=(0,1)); the topology stage is
+    # right to refuse it instead of inventing edges.
+    n_lo, n_hi = cfg.num_nodes
+    if not any(_edge_window(n, cfg) is not None for n in range(n_lo, n_hi + 1)):
+        return
     try:
         sks = [random_dag_topology(cfg, graph_rng(seed, i)) for i in range(20)]
     except TopologyError:
-        # Only allowed when no hidden count in range can meet the edge range.
+        # Only allowed when the edge range cannot be met either.
         assert cfg.num_edges is not None
         return
     for sk in sks:

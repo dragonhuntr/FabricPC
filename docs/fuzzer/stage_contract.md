@@ -18,10 +18,13 @@ GeneratorConfig ─topology─▶ Skeleton ─assign─▶ GraphSpec ─validate
 ```
 
 `fabricpc/fuzzer/pipeline.py` runs the three stages for each graph, retries
-failed attempts with fresh randomness up to `config.max_attempts` times, skips
-duplicates, and stamps provenance metadata. **Today every stage is a stand-in**
-(`chain_topology`, `linear_assign`, `check_builds`), so the CLI and tests work
-end to end. Each owner replaces one stand-in.
+failed attempts with fresh randomness up to `config.max_attempts` times (1000 by
+default), skips duplicates, and stamps provenance metadata. A graph that
+exhausts the limit is skipped: the valid graphs are returned with a
+`PartialBatchWarning`, and the report names the most common failing check. The
+default stages are `random_dag_topology`, `typed_assign` and `validate_spec`;
+`chain_topology`, `linear_assign` and `check_builds` remain as stand-ins and as
+the shape of a sequential baseline.
 
 ## Stage 1: topology (Evan)
 
@@ -37,7 +40,10 @@ Expected of every skeleton:
 - The hidden node count is within `config.num_nodes`.
 - No edge points into `input`; no self-edges; no duplicate `(source, target)` pairs.
 - Every hidden node and `output` has at least one in-edge, and every
-  in-degree is within `config.in_degree`.
+  hidden in-degree is within `config.in_degree`. A clamped output has exactly
+  its requested in-degree instead.
+- Every hidden node's out-degree is within `config.out_degree` when that
+  setting is not `None`. A clamped input has exactly its requested out-degree.
 - The edge count is within `config.num_edges` when that setting is not `None`.
 - No directed cycle unless `config.allow_cycles` is true.
 - Every hidden node lies on some path from `input` to `output` (no dead branches).
@@ -60,7 +66,9 @@ only), a `shape`, an `activation` and, if needed, extra constructor kwargs in
 `NodeSpec.config`. For each edge, choose a `slot`. The input node has role
 `"input"`, shape `config.input_shape`, and is normally an `IdentityNode`. The
 output node has role `"output"`, shape `config.output_shape`, and uses
-`config.output_activation` and `config.output_energy`.
+`config.output_activation` and `config.output_energy`. When `clamped_nodes` is
+set, its node type and shape replace the defaults for the input and output, so
+every graph in the batch keeps one task map.
 
 Assign **may** add or drop edges (for example, a `skip` edge that a
 `SkipConnection` needs). If it does, the returned spec is the source of truth,
@@ -146,6 +154,11 @@ stage automatically once it's the default.
 - Evan → Adzfar: SR-F-04.3/04.4 need out-degree limits, but `GeneratorConfig`
   has no `out_degree` setting. Can it be added (same shape as `in_degree`)?
   Until then only in-degree limits are enforced and tested.
+  **Resolved:** `out_degree` and `clamped_nodes` are now real settings, with
+  validation errors that name the field, and the topology stage enforces both.
+- Adzfar → sponsor: should a batch that cannot fill its request fail the
+  command, or return the partial batch (current behaviour, exit 1 only when no
+  graph at all was made)?
 - Hai: does every node type's shape rule fit `NodeSpec` as-is, or do some types
   need extra fields (kernel size, number of heads)? Right now those would go in
   `NodeSpec.config`.
