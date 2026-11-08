@@ -17,13 +17,8 @@ a small synthetic task instead.
 import argparse
 
 from fabricpc import setup_jax
-from fabricpc.fuzzer import (
-    EvalSettings,
-    GeneratorConfig,
-    evaluate_batch,
-    generate,
-    load_batch,
-)
+from fabricpc.fuzzer import GeneratorConfig, generate, load_batch
+from fabricpc.fuzzer.experiments import EvalSettings, evaluate_batch
 from fabricpc.utils.data.dataloader import MnistLoader
 
 

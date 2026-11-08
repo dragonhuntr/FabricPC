@@ -1,4 +1,7 @@
-"""Tests for fabricpc.fuzzer.evaluate: generated graphs vs sequential baselines.
+"""Tests for fabricpc.fuzzer.experiments.evaluate: graphs vs baselines.
+
+The code lives under ``fuzzer/experiments`` because the sponsor moved
+evaluation out of the fuzzer's default path (SR-F-12.x, pending confirmation).
 
 Most tests swap in stub train/eval functions so they run in milliseconds; a
 few train for real on a tiny synthetic task.
@@ -11,8 +14,8 @@ import numpy as np
 import pytest
 
 from fabricpc.fuzzer import GeneratorConfig, generate
-from fabricpc.fuzzer.baselines import sequential_baseline
-from fabricpc.fuzzer.evaluate import (
+from fabricpc.fuzzer.experiments.baselines import sequential_baseline
+from fabricpc.fuzzer.experiments.evaluate import (
     CSV_COLUMNS,
     EvalSettings,
     PeakMemory,

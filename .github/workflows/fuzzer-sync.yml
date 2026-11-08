@@ -1,0 +1,54 @@
+name: Fuzzer upstream sync
+
+# The fuzzer lives in the FabricPC repository, so a PR is tested against the
+# main it was rebased onto. This job makes the sponsor rule explicit:
+#   - the branch must contain origin/main (rebase before opening the PR);
+#   - generation must still build and train on that FabricPC;
+#   - the whole check must stay under the 5-minute budget (SR-NF-PE-02).
+on:
+  push:
+    paths:
+      - "fabricpc/fuzzer/**"
+      - "tests/test_fuzzer_*.py"
+      - "tests/golden/**"
+      - ".github/workflows/fuzzer-sync.yml"
+  pull_request:
+    paths:
+      - "fabricpc/fuzzer/**"
+      - "tests/test_fuzzer_*.py"
+      - "tests/golden/**"
+      - ".github/workflows/fuzzer-sync.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FabricPC from this ref
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev]"
+      - name: Require a rebase on upstream main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "::error::Branch is not based on main. Rebase before opening the PR."
+            exit 1
+          fi
+      - name: Run the upstream-sync suite under the 5-minute budget
+        run: |
+          start=$(date +%s)
+          pytest tests/test_fuzzer_upstream_sync.py -q
+          elapsed=$(( $(date +%s) - start ))
+          echo "upstream-sync suite: ${elapsed}s (budget 300s)"
+          test "${elapsed}" -lt 300

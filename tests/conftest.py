@@ -25,6 +25,22 @@ from fabricpc.nodes import Linear
 setup_jax("cpu")
 
 
+def pytest_addoption(parser):
+    """Register the golden-file update flag for the upstream-sync suite."""
+    parser.addoption(
+        "--update-golden",
+        action="store_true",
+        default=False,
+        help="rewrite tests/golden/fuzzer_fingerprints.json (review the diff!)",
+    )
+
+
+@pytest.fixture
+def update_golden(request) -> bool:
+    """True when ``--update-golden`` was passed."""
+    return bool(request.config.getoption("--update-golden"))
+
+
 @pytest.fixture
 def rng_key():
     """Fixture to provide a JAX random key."""
