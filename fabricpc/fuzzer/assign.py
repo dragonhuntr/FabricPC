@@ -22,7 +22,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 
 from fabricpc.fuzzer import registry
-from fabricpc.fuzzer.config import GeneratorConfig
+from fabricpc.fuzzer.config import UNSUPPORTED_TYPES, GeneratorConfig
 from fabricpc.fuzzer.spec import (
     ROLE_HIDDEN,
     ROLE_INPUT,
@@ -49,8 +49,6 @@ SHAPE_PRESERVING_SLOTS = frozenset(
 #: Fewest incoming edges for a type to be worth choosing. A SkipConnection
 #: needs one edge for its required "skip" slot and one for "in".
 MIN_IN_DEGREE = {"SkipConnection": 2}
-
-from fabricpc.fuzzer.config import UNSUPPORTED_TYPES, GeneratorConfig
 
 INPUT_TYPE = "IdentityNode"
 OUTPUT_TYPE = "Linear"
