@@ -86,9 +86,15 @@ Return `ValidationResult.passed()` or
 UR-F-11 tell the researcher what is wrong. A failed graph is regenerated, not
 returned, so a passing result has to mean "builds and trains".
 
-## Evaluation (Wai Soon)
+## Evaluation (Wai Soon) — moved out of scope, pending sponsor confirmation
 
-Evaluation is not a pipeline stage. It consumes the output:
+Evaluation is not a pipeline stage, and after the Nov 3 sponsor meeting it is
+no longer part of the fuzzer's default path. The code is kept under
+`fabricpc/fuzzer/experiments/` and is still tested; it is not re-exported from
+`fabricpc.fuzzer`. The useful replacement is the upstream-sync suite, which
+checks that FabricPC changes do not break generation.
+
+Evaluation consumes the fuzzer's output:
 
 ```python
 specs = generate(config)                  # or load_batch("runs/demo")
@@ -98,9 +104,12 @@ structure = to_fabricpc(spec)             # GraphStructure for initialize_params
 Baselines are `GraphSpec`s too, so baselines and generated graphs go through
 the same code path and serialize the same way.
 
-Implemented in `fabricpc/fuzzer/baselines.py` and `fabricpc/fuzzer/evaluate.py`:
+Implemented in `fabricpc/fuzzer/experiments/baselines.py` and
+`fabricpc/fuzzer/experiments/evaluate.py`:
 
 ```python
+from fabricpc.fuzzer.experiments import EvalSettings, evaluate_batch, read_csv
+
 report = evaluate_batch(specs, data_factory, EvalSettings(training_seeds=(0, 1, 2)))
 report.to_csv("runs/demo/results.csv")   # one row per graph and model
 rows = read_csv("runs/demo/results.csv")  # plain dicts

@@ -7,7 +7,7 @@ Evaluation consumes the pipeline's output and never changes it::
     report.to_csv("results.csv")
 
 For every graph, :func:`evaluate_graph` builds the sequential baseline from
-:mod:`fabricpc.fuzzer.baselines`, then trains both with FabricPC once per
+:mod:`fabricpc.fuzzer.experiments.baselines`, then trains both with FabricPC once per
 training seed and records, per model:
 
 - test classification accuracy, its mean and standard error over seeds,
@@ -53,7 +53,7 @@ import optax
 
 from fabricpc.core.inference import InferenceBase
 from fabricpc.experiments.statistics import descriptive_stats
-from fabricpc.fuzzer.baselines import (
+from fabricpc.fuzzer.experiments.baselines import (
     BASELINE_KIND,
     describe_architecture,
     sequential_baseline,
@@ -232,7 +232,7 @@ class ModelResult:
         graph_seed: Generation seed of the graph, when the spec records it.
         runs: One :class:`SeedRun` per training seed, in seed order.
         architecture: Layer sizes and connections from
-            :func:`~fabricpc.fuzzer.baselines.describe_architecture`.
+            :func:`~fabricpc.fuzzer.experiments.baselines.describe_architecture`.
         num_params: Trainable parameter count.
         memory_source: How peak memory was measured (see :class:`PeakMemory`).
     """

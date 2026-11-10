@@ -1,11 +1,11 @@
-"""Tests for fabricpc.fuzzer.baselines: sequential baselines for generated graphs."""
+"""Tests for fabricpc.fuzzer.experiments.baselines: sequential baselines."""
 
 import json
 
 import pytest
 
 from fabricpc.fuzzer import GeneratorConfig, generate, to_fabricpc
-from fabricpc.fuzzer.baselines import (
+from fabricpc.fuzzer.experiments.baselines import (
     describe_architecture,
     layer_sizes,
     sequential_baseline,
