@@ -260,3 +260,13 @@ def test_config_rejects_types_assign_cannot_build(node_type):
     with pytest.raises(ConfigError, match=node_type) as exc:
         GeneratorConfig(node_types=("Linear", node_type)).validate()
     assert exc.value.param == "node_types"
+
+
+@pytest.mark.parametrize(
+    "energy, activation",
+    [("bernoulli", "softmax"), ("cross_entropy", "relu"), ("kl_divergence", "tanh")],
+)
+def test_config_rejects_impossible_output_pairs(energy, activation):
+    with pytest.raises(ConfigError, match="needs output_activation") as exc:
+        GeneratorConfig(output_energy=energy, output_activation=activation).validate()
+    assert exc.value.param == "output_activation"

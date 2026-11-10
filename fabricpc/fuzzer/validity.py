@@ -36,16 +36,12 @@ import optax
 from fabricpc.fuzzer import registry
 from fabricpc.fuzzer.assign import SHAPE_PRESERVING_SLOTS
 from fabricpc.fuzzer.build import BuildError, to_fabricpc
+from fabricpc.fuzzer.config import ENERGY_NEEDS_ACTIVATION
 from fabricpc.fuzzer.spec import GraphSpec, SpecError
 from fabricpc.graph_initialization import initialize_params
 from fabricpc.training import make_train_step
 
 #: Output energies that only make sense with particular output activations.
-ENERGY_NEEDS_ACTIVATION = {
-    "cross_entropy": frozenset({"softmax"}),
-    "kl_divergence": frozenset({"softmax"}),
-    "bernoulli": frozenset({"sigmoid"}),
-}
 
 SMOKE_BATCH = 8
 SMOKE_STEPS = 2

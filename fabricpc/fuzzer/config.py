@@ -35,6 +35,13 @@ IntOrRange = Union[int, IntRange]
 #: kernel settings in ``NodeSpec.config``. ``validate()`` rejects them.
 UNSUPPORTED_TYPES = frozenset({"ConvNode", "MaxPool", "AvgPool"})
 
+#: Output energies that only make sense with particular output activations.
+ENERGY_NEEDS_ACTIVATION = {
+    "cross_entropy": frozenset({"softmax"}),
+    "kl_divergence": frozenset({"softmax"}),
+    "bernoulli": frozenset({"sigmoid"}),
+}
+
 CLAMPED_ROLES = ("input", "output")
 
 
@@ -351,6 +358,14 @@ class GeneratorConfig:
             "output_activation", registry.ACTIVATIONS, self.output_activation
         )
         _check_registered("output_energy", registry.ENERGIES, self.output_energy)
+        needs = ENERGY_NEEDS_ACTIVATION.get(self.output_energy)
+        if needs and self.output_activation not in needs:
+            raise ConfigError(
+                "output_activation",
+                f"output_energy {self.output_energy!r} needs output_activation "
+                f"{' or '.join(map(repr, sorted(needs)))}, "
+                f"got {self.output_activation!r}",
+            )
 
         for param in ("input_shape", "output_shape"):
             shape = getattr(self, param)
