@@ -23,19 +23,22 @@ Or from the shell::
 
 __version__ = "0.1.0"
 
-from fabricpc.fuzzer.spec import EdgeSpec, GraphSpec, NodeSpec, SpecError  # noqa: E402
-from fabricpc.fuzzer.config import ConfigError, GeneratorConfig  # noqa: E402
-from fabricpc.fuzzer.serialize import (  # noqa: E402
-    SerializationError,
-    dumps,
-    load,
-    load_batch,
-    loads,
-    save,
-    save_batch,
+from fabricpc.fuzzer.baselines import (
+    describe_architecture,
+    sequential_baseline,
 )
-from fabricpc.fuzzer.build import BuildError, to_fabricpc  # noqa: E402
-from fabricpc.fuzzer.pipeline import (  # noqa: E402
+from fabricpc.fuzzer.build import BuildError, to_fabricpc
+from fabricpc.fuzzer.config import ConfigError, GeneratorConfig
+from fabricpc.fuzzer.evaluate import (
+    EvalSettings,
+    EvaluationReport,
+    ModelResult,
+    evaluate_batch,
+    evaluate_graph,
+    read_csv,
+)
+from fabricpc.fuzzer.factory import ModelFactory, as_model_factory
+from fabricpc.fuzzer.pipeline import (
     GenerationError,
     GenerationReport,
     Skeleton,
@@ -44,30 +47,28 @@ from fabricpc.fuzzer.pipeline import (  # noqa: E402
     generate,
     generate_one,
 )
-from fabricpc.fuzzer.baselines import (  # noqa: E402
-    describe_architecture,
-    sequential_baseline,
+from fabricpc.fuzzer.serialize import (
+    SerializationError,
+    dumps,
+    load,
+    load_batch,
+    loads,
+    save,
+    save_batch,
 )
-from fabricpc.fuzzer.evaluate import (  # noqa: E402
-    EvalSettings,
-    EvaluationReport,
-    ModelResult,
-    evaluate_batch,
-    evaluate_graph,
-    read_csv,
-)
+from fabricpc.fuzzer.spec import EdgeSpec, GraphSpec, NodeSpec, SpecError
 
 __all__ = [
-    "__version__",
     "BuildError",
     "ConfigError",
+    "EdgeSpec",
     "EvalSettings",
     "EvaluationReport",
-    "EdgeSpec",
     "GenerationError",
     "GenerationReport",
     "GeneratorConfig",
     "GraphSpec",
+    "ModelFactory",
     "ModelResult",
     "NodeSpec",
     "SerializationError",
@@ -75,6 +76,8 @@ __all__ = [
     "SpecError",
     "ValidationIssue",
     "ValidationResult",
+    "__version__",
+    "as_model_factory",
     "describe_architecture",
     "dumps",
     "evaluate_batch",
