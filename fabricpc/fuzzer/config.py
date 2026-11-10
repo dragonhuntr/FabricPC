@@ -32,6 +32,8 @@ from fabricpc.fuzzer import registry
 IntRange = Tuple[int, int]
 IntOrRange = Union[int, IntRange]
 
+CLAMPED_ROLES = ("input", "output")
+
 
 class ConfigError(ValueError):
     """An invalid generation setting.
@@ -77,6 +79,80 @@ def _as_int_tuple(param: str, value: Any) -> Tuple[int, ...]:
 
 
 @dataclass(frozen=True)
+class ClampedNode:
+    """A fixed input or output node shared by every graph in a batch.
+
+    Clamped nodes are how a batch keeps one task map: the input and output keep
+    the same name, type, shape, in-degree and out-degree, so every graph can be
+    trained and scored on the same data.
+
+    Attributes:
+        role: ``"input"`` or ``"output"``.
+        node_type: Registry key of the FabricPC node class (for example
+            ``"Linear"`` or ``"IdentityNode"``).
+        shape: Shape of one sample, excluding the batch dimension.
+        in_degree: Exact number of incoming edges.
+        out_degree: Exact number of outgoing edges.
+    """
+
+    role: str
+    node_type: str
+    shape: Tuple[int, ...]
+    in_degree: int
+    out_degree: int
+
+    def __post_init__(self):
+        object.__setattr__(self, "shape", _as_int_tuple("clamped_nodes", self.shape))
+
+    def to_dict(self) -> Dict[str, Any]:
+        """JSON-safe form, with the shape as a list."""
+        return {
+            "role": self.role,
+            "node_type": self.node_type,
+            "shape": list(self.shape),
+            "in_degree": self.in_degree,
+            "out_degree": self.out_degree,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "ClampedNode":
+        """Build from a mapping, naming ``clamped_nodes`` on any problem."""
+        if not isinstance(data, Mapping):
+            raise ConfigError("clamped_nodes", f"expected an object, got {data!r}")
+        allowed = {"role", "node_type", "shape", "in_degree", "out_degree"}
+        missing = allowed - set(data)
+        if missing:
+            raise ConfigError("clamped_nodes", f"entry is missing {sorted(missing)}")
+        unknown = set(data) - allowed
+        if unknown:
+            raise ConfigError(
+                "clamped_nodes", f"entry has unknown keys {sorted(unknown)}"
+            )
+        return cls(**dict(data))
+
+
+def _as_clamped_nodes(value: Any) -> Tuple[ClampedNode, ...]:
+    """Normalize a list of entries, or a role-keyed mapping, to a tuple."""
+    if isinstance(value, Mapping):
+        entries = []
+        for role, entry in value.items():
+            if not isinstance(entry, Mapping):
+                raise ConfigError("clamped_nodes", f"entry {role!r} must be an object")
+            merged = dict(entry)
+            merged.setdefault("role", role)
+            entries.append(merged)
+        value = entries
+    if isinstance(value, ClampedNode):
+        return (value,)
+    if not isinstance(value, (list, tuple)):
+        raise ConfigError("clamped_nodes", f"expected a list of entries, got {value!r}")
+    return tuple(
+        entry if isinstance(entry, ClampedNode) else ClampedNode.from_dict(entry)
+        for entry in value
+    )
+
+
+@dataclass(frozen=True)
 class GeneratorConfig:
     """Settings that control which graphs the fuzzer generates.
 
@@ -89,6 +165,9 @@ class GeneratorConfig:
         num_edges: Total number of edges, or ``None`` to let the topology
             generator decide.
         in_degree: Allowed number of incoming edges per non-input node.
+        out_degree: Allowed number of outgoing edges per non-clamped (hidden)
+            node, or ``None`` for no limit. The input's and output's degrees are
+            fixed by ``clamped_nodes``.
         node_types: Node types the generator may use for hidden nodes.
         allow_cycles: Allow feedback edges (recurrent/cyclic graphs).
         unroll: Cycle traversals used when building a cyclic graph.
@@ -102,6 +181,9 @@ class GeneratorConfig:
         constraints: Free-form constraints supplied by a person or by an
             automated feedback loop. Unrecognized keys are kept and passed to
             every stage, which reads the ones it understands.
+        clamped_nodes: Zero or two :class:`ClampedNode` entries that fix the
+            input and output node for every graph in the batch. When present,
+            their shapes also set ``input_shape`` and ``output_shape``.
     """
 
     num_graphs: int = 1
@@ -109,6 +191,7 @@ class GeneratorConfig:
     num_nodes: IntOrRange = (2, 6)
     num_edges: Optional[IntOrRange] = None
     in_degree: IntOrRange = (1, 3)
+    out_degree: Optional[IntOrRange] = None
     node_types: Tuple[str, ...] = ("Linear",)
     allow_cycles: bool = False
     unroll: int = 2
@@ -118,8 +201,9 @@ class GeneratorConfig:
     hidden_activations: Tuple[str, ...] = ("relu", "tanh", "sigmoid")
     output_activation: str = "softmax"
     output_energy: str = "cross_entropy"
-    max_attempts: int = 100
+    max_attempts: int = 1000
     constraints: Mapping[str, Any] = field(default_factory=dict, hash=False)
+    clamped_nodes: Tuple[ClampedNode, ...] = ()
 
     def __post_init__(self):
         # Normalize list/int inputs so equal settings compare equal.
@@ -134,11 +218,21 @@ class GeneratorConfig:
                 "hidden_activations", self.hidden_activations
             ),
             "constraints": dict(self.constraints),
+            "clamped_nodes": _as_clamped_nodes(self.clamped_nodes),
         }
         if self.num_edges is not None:
             norm["num_edges"] = _as_range("num_edges", self.num_edges)
+        if self.out_degree is not None:
+            norm["out_degree"] = _as_range("out_degree", self.out_degree)
         for key, value in norm.items():
             object.__setattr__(self, key, value)
+        # A clamped node's shape is the task map's shape; keep the top-level
+        # fields in step instead of letting them disagree.
+        for node in norm["clamped_nodes"]:
+            if node.role == "input":
+                object.__setattr__(self, "input_shape", node.shape)
+            elif node.role == "output":
+                object.__setattr__(self, "output_shape", node.shape)
 
     # -------------------------------------------------------------- validation
     def validate(self) -> "GeneratorConfig":
@@ -182,11 +276,40 @@ class GeneratorConfig:
                 f"({n_hi + 1} with num_nodes max {n_hi})",
             )
 
+        if self.out_degree is not None:
+            _check_range("out_degree", self.out_degree, minimum=1)
+            o_lo, o_hi = self.out_degree
+            if not self.allow_cycles and o_lo > 1:
+                raise ConfigError(
+                    "out_degree",
+                    f"minimum {o_lo} is impossible without cycles: the last "
+                    "hidden node can only feed the output node. Use a minimum "
+                    "of 1 or set allow_cycles = true.",
+                )
+            if o_lo > n_hi:
+                raise ConfigError(
+                    "out_degree",
+                    f"minimum {o_lo} exceeds the number of possible targets "
+                    f"({n_hi} with num_nodes max {n_hi})",
+                )
+            if o_hi > n_hi:
+                raise ConfigError(
+                    "out_degree",
+                    f"maximum {o_hi} exceeds the number of possible targets "
+                    f"({n_hi} with num_nodes max {n_hi})",
+                )
+
+        clamped = {node.role: node for node in self.clamped_nodes}
+        output_in_hi = clamped["output"].in_degree if "output" in clamped else d_hi
+        output_in_lo = (
+            clamped["output"].in_degree if "output" in clamped else self.in_degree[0]
+        )
+
         if self.num_edges is not None:
             _check_range("num_edges", self.num_edges, minimum=1)
             e_lo, e_hi = self.num_edges
             # Each hidden node and the output need at least one in-edge.
-            min_needed = n_lo + 1
+            min_needed = n_lo + output_in_lo
             if e_hi < min_needed:
                 raise ConfigError(
                     "num_edges",
@@ -194,7 +317,7 @@ class GeneratorConfig:
                     f"nodes, every hidden node and the output need an incoming "
                     f"edge, so at least {min_needed} edges are required",
                 )
-            max_possible = (n_hi + 1) * d_hi
+            max_possible = n_hi * d_hi + output_in_hi
             if not self.allow_cycles:
                 total = n_hi + 2
                 max_possible = min(max_possible, total * (total - 1) // 2)
@@ -227,6 +350,76 @@ class GeneratorConfig:
             raise ConfigError(
                 "hidden_sizes", f"sizes must be positive, got {list(self.hidden_sizes)}"
             )
+
+        if self.clamped_nodes:
+            if len(self.clamped_nodes) != 2:
+                raise ConfigError(
+                    "clamped_nodes",
+                    "expected exactly two entries, one input and one output, "
+                    f"got {len(self.clamped_nodes)}",
+                )
+            by_role: Dict[str, ClampedNode] = {}
+            for node in self.clamped_nodes:
+                if node.role not in CLAMPED_ROLES:
+                    raise ConfigError(
+                        "clamped_nodes",
+                        f"role {node.role!r} is not one of {list(CLAMPED_ROLES)}",
+                    )
+                if node.role in by_role:
+                    raise ConfigError(
+                        "clamped_nodes", f"role {node.role!r} is set twice"
+                    )
+                by_role[node.role] = node
+                _check_registered("clamped_nodes", registry.NODE_TYPES, node.node_type)
+                if not node.shape or any(d <= 0 for d in node.shape):
+                    raise ConfigError(
+                        "clamped_nodes",
+                        f"{node.role} shape dims must be positive, "
+                        f"got {list(node.shape)}",
+                    )
+                _check_int("clamped_nodes", node.in_degree, minimum=0)
+                _check_int("clamped_nodes", node.out_degree, minimum=0)
+            if set(by_role) != set(CLAMPED_ROLES):
+                missing = sorted(set(CLAMPED_ROLES) - set(by_role))
+                raise ConfigError("clamped_nodes", f"missing role(s) {missing}")
+            input_node = by_role["input"]
+            output_node = by_role["output"]
+            if input_node.in_degree != 0:
+                raise ConfigError(
+                    "clamped_nodes",
+                    "the input node cannot receive edges; set its in_degree to 0",
+                )
+            if input_node.out_degree < 1:
+                raise ConfigError(
+                    "clamped_nodes",
+                    "the input node must feed at least one node; set its "
+                    "out_degree to 1 or more",
+                )
+            if input_node.out_degree > n_hi + 1:
+                raise ConfigError(
+                    "clamped_nodes",
+                    f"input out_degree {input_node.out_degree} exceeds the "
+                    f"{n_hi + 1} possible targets",
+                )
+            if output_node.out_degree != 0:
+                raise ConfigError(
+                    "clamped_nodes",
+                    "the output node cannot feed other nodes; set its "
+                    "out_degree to 0",
+                )
+            if output_node.in_degree < 1:
+                raise ConfigError(
+                    "clamped_nodes",
+                    "the output node must receive at least one edge; set its "
+                    "in_degree to 1 or more",
+                )
+            if output_node.in_degree > n_hi + 1:
+                raise ConfigError(
+                    "clamped_nodes",
+                    f"output in_degree {output_node.in_degree} exceeds the "
+                    f"{n_hi + 1} possible sources",
+                )
+
         try:
             json.dumps(self.constraints)
         except TypeError as exc:
@@ -241,7 +434,9 @@ class GeneratorConfig:
         out: Dict[str, Any] = {}
         for f in dataclasses.fields(self):
             value = getattr(self, f.name)
-            if isinstance(value, tuple):
+            if f.name == "clamped_nodes":
+                value = [node.to_dict() for node in value]
+            elif isinstance(value, tuple):
                 value = list(value)
             elif isinstance(value, Mapping):
                 value = json.loads(json.dumps(dict(value)))

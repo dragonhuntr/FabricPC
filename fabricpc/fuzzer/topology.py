@@ -52,6 +52,7 @@ from fabricpc.fuzzer.spec import INPUT_NAME, OUTPUT_NAME, Skeleton
 
 TOPOLOGY_MODELS = ("random_dag", "erdos_renyi", "barabasi_albert", "watts_strogatz")
 DEFAULT_MODEL = "random_dag"
+MAX_DRAWS = 200
 
 
 class TopologyError(ValueError):
@@ -74,8 +75,14 @@ def _max_sources(position: int, n: int, cycles: bool) -> int:
 def _degree_bounds(n: int, config: GeneratorConfig) -> List[Tuple[int, int]]:
     """Per-position ``(lo, hi)`` in-degree bounds for positions 1..n+1."""
     d_lo, d_hi = config.in_degree
+    clamped = {node.role: node for node in config.clamped_nodes}
     bounds = []
     for k in range(1, n + 2):
+        if k == n + 1 and "output" in clamped:
+            # A clamped output has exactly the requested in-degree.
+            d = clamped["output"].in_degree
+            bounds.append((d, d))
+            continue
         hi = min(d_hi, _max_sources(k, n, config.allow_cycles))
         bounds.append((d_lo, hi))
     return bounds
@@ -89,6 +96,16 @@ def _edge_window(n: int, config: GeneratorConfig) -> Optional[Tuple[int, int]]:
         return None
     lo = sum(b[0] for b in bounds)
     hi = sum(b[1] for b in bounds)
+    clamped = {node.role: node for node in config.clamped_nodes}
+    input_out = clamped["input"].out_degree if "input" in clamped else None
+    if config.out_degree is not None:
+        o_lo, o_hi = config.out_degree
+        # Total edges = input edges + hidden outgoing edges.
+        lo = max(lo, (input_out if input_out is not None else 1) + n * o_lo)
+        hi = min(
+            hi,
+            (input_out if input_out is not None else n + 1) + n * o_hi,
+        )
     if config.num_edges is not None:
         lo = max(lo, config.num_edges[0])
         hi = min(hi, config.num_edges[1])
@@ -147,9 +164,21 @@ def _pick(
     out_degree: Dict[int, int],
     rewire_prob: float,
     rng: np.random.Generator,
+    max_out: Optional[int] = None,
 ) -> List[int]:
-    """Pick ``count`` distinct parents from ``candidates`` under ``model``."""
-    pool = list(candidates)
+    """Pick ``count`` distinct parents from ``candidates`` under ``model``.
+
+    When ``max_out`` is set, candidates already at the out-degree cap are
+    dropped first. If too few remain the whole pool is used and the caller's
+    post-condition rejects the draw, so the constraint is never silently
+    broken.
+    """
+    source = list(candidates)
+    pool = source
+    if max_out is not None:
+        under = [c for c in pool if out_degree.get(c, 0) < max_out]
+        if len(under) >= count:
+            pool = under
     chosen: List[int] = []
     for _ in range(count):
         if model == "barabasi_albert":
@@ -170,13 +199,55 @@ def _total_target(window: Tuple[int, int], n: int, rng) -> int:
     return int(rng.integers(lo, hi + 1))
 
 
+def _raise_min_out_degrees(
+    edges: List[Tuple[int, int]],
+    n: int,
+    bounds: Sequence[Tuple[int, int]],
+    config: GeneratorConfig,
+    rng: np.random.Generator,
+) -> Optional[List[Tuple[int, int]]]:
+    """Add legal edges until every hidden node meets ``out_degree[0]``.
+
+    Returns ``None`` when no legal target is left; the caller then redraws.
+    The input and output are never targets here (the input cannot receive
+    edges and the output's in-degree is already at its bound).
+    """
+    assert config.out_degree is not None
+    target, _ = config.out_degree
+    edges = list(edges)
+    edge_set = set(edges)
+    out: Dict[int, int] = {}
+    indeg: Dict[int, int] = {}
+    for s, t in edges:
+        out[s] = out.get(s, 0) + 1
+        indeg[t] = indeg.get(t, 0) + 1
+    for k in range(1, n + 1):
+        while out.get(k, 0) < target:
+            candidates = [
+                j
+                for j in range(1, n + 2)
+                if j != k
+                and (k, j) not in edge_set
+                and indeg.get(j, 0) < bounds[j - 1][1]
+                and (config.allow_cycles or j > k)
+            ]
+            if not candidates:
+                return None
+            j = candidates[int(rng.integers(len(candidates)))]
+            edge_set.add((k, j))
+            edges.append((k, j))
+            out[k] = out.get(k, 0) + 1
+            indeg[j] = indeg.get(j, 0) + 1
+    return edges
+
+
 def random_dag_topology(config: GeneratorConfig, rng: np.random.Generator) -> Skeleton:
     """Draw a random skeleton that satisfies every structural setting in ``config``.
 
     Args:
         config: Generation settings. ``num_nodes``, ``num_edges``,
-            ``in_degree``, ``allow_cycles`` and ``constraints["topology_model"]``
-            are read.
+            ``in_degree``, ``out_degree``, ``clamped_nodes``,
+            ``allow_cycles`` and ``constraints["topology_model"]`` are read.
         rng: The only source of randomness.
 
     Returns:
@@ -195,7 +266,35 @@ def random_dag_topology(config: GeneratorConfig, rng: np.random.Generator) -> Sk
         )
     edge_prob = float(constraints.get("edge_prob", 0.5))
     rewire_prob = float(constraints.get("rewire_prob", 0.2))
+
+    last_issues: List[str] = []
+    for _ in range(MAX_DRAWS):
+        skeleton = _draw_once(config, rng, model, edge_prob, rewire_prob)
+        if skeleton is None:
+            last_issues = ["out_degree lower bound could not be met"]
+            continue
+        issues = skeleton_issues(skeleton, config)
+        if not issues:
+            return skeleton
+        last_issues = issues
+    raise TopologyError(
+        "could not draw a skeleton satisfying the degree and clamped-node "
+        f"settings after {MAX_DRAWS} draws: {'; '.join(last_issues)}"
+    )
+
+
+def _draw_once(
+    config: GeneratorConfig,
+    rng: np.random.Generator,
+    model: str,
+    edge_prob: float,
+    rewire_prob: float,
+) -> Optional[Skeleton]:
+    """One draw; ``None`` means the draw missed a constraint and can be retried."""
     cycles = config.allow_cycles
+    clamped = {node.role: node for node in config.clamped_nodes}
+    input_target = clamped["input"].out_degree if "input" in clamped else None
+    out_cap = config.out_degree[1] if config.out_degree is not None else None
 
     n, window = _choose_hidden_count(config, rng)
     bounds = _degree_bounds(n, config)
@@ -247,8 +346,27 @@ def random_dag_topology(config: GeneratorConfig, rng: np.random.Generator) -> Sk
             need = len(uncovered)
         need = max(0, need)
         must = _pick(sorted(uncovered), need, model, k, out_degree, rewire_prob, rng)
+        # Feed the input up to its clamped out-degree using spare slots.
+        if (
+            input_target is not None
+            and out_degree.get(0, 0) < input_target
+            and 0 not in must
+            and len(must) < f
+        ):
+            must.append(0)
         rest_pool = [c for c in range(k) if c not in must]
-        extra = _pick(rest_pool, f - need, model, k, out_degree, rewire_prob, rng)
+        if input_target is not None and out_degree.get(0, 0) >= input_target:
+            rest_pool = [c for c in rest_pool if c != 0]
+        extra = _pick(
+            rest_pool,
+            f - len(must),
+            model,
+            k,
+            out_degree,
+            rewire_prob,
+            rng,
+            max_out=out_cap,
+        )
         for p in must + extra:
             edges.append((p, k))
             out_degree[p] = out_degree.get(p, 0) + 1
@@ -260,10 +378,23 @@ def random_dag_topology(config: GeneratorConfig, rng: np.random.Generator) -> Sk
         if backward[k - 1]:
             later = list(range(k + 1, n + 1))
             for p in _pick(
-                later, backward[k - 1], model, k, out_degree, rewire_prob, rng
+                later,
+                backward[k - 1],
+                model,
+                k,
+                out_degree,
+                rewire_prob,
+                rng,
+                max_out=out_cap,
             ):
                 edges.append((p, k))
                 out_degree[p] = out_degree.get(p, 0) + 1
+
+    if config.out_degree is not None:
+        repaired = _raise_min_out_degrees(edges, n, bounds, config, rng)
+        if repaired is None:
+            return None
+        edges = repaired
 
     names = {0: INPUT_NAME, n + 1: OUTPUT_NAME}
     names.update({k: f"h{k - 1}" for k in range(1, n + 1)})
@@ -310,11 +441,33 @@ def skeleton_issues(skeleton: Skeleton, config: GeneratorConfig) -> List[str]:
         preds[t].add(s)
         succs[s].add(t)
     d_lo, d_hi = config.in_degree
-    for v in [*hidden, out]:
+    for v in hidden:
         if not d_lo <= len(preds[v]) <= d_hi:
             issues.append(
                 f"{v} has in-degree {len(preds[v])} outside in_degree {[d_lo, d_hi]}"
             )
+    clamped = {node.role: node for node in config.clamped_nodes}
+    if "output" in clamped:
+        want = clamped["output"].in_degree
+        if len(preds[out]) != want:
+            issues.append(f"{out} has in-degree {len(preds[out])}, clamped to {want}")
+    elif not d_lo <= len(preds[out]) <= d_hi:
+        issues.append(
+            f"{out} has in-degree {len(preds[out])} outside in_degree "
+            f"{[d_lo, d_hi]}"
+        )
+    if "input" in clamped:
+        want = clamped["input"].out_degree
+        if len(succs[inp]) != want:
+            issues.append(f"{inp} has out-degree {len(succs[inp])}, clamped to {want}")
+    if config.out_degree is not None:
+        o_lo, o_hi = config.out_degree
+        for v in hidden:
+            deg = len(succs[v])
+            if not o_lo <= deg <= o_hi:
+                issues.append(
+                    f"{v} has out-degree {deg} outside out_degree " f"{[o_lo, o_hi]}"
+                )
     if not config.allow_cycles:
         try:
             tuple(graphlib.TopologicalSorter(preds).static_order())

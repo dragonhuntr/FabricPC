@@ -25,6 +25,8 @@ defaults in :data:`DEFAULT_STAGES` once their modules land.
 
 from __future__ import annotations
 
+import warnings
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Protocol, Tuple
 
@@ -44,7 +46,7 @@ from fabricpc.fuzzer.spec import (
     NodeSpec,
     Skeleton,
 )
-from fabricpc.fuzzer.topology import random_dag_topology
+from fabricpc.fuzzer.topology import TopologyError, random_dag_topology
 from fabricpc.fuzzer.assign import typed_assign
 from fabricpc.fuzzer.validity import validate_spec
 
@@ -123,6 +125,10 @@ class GenerationError(RuntimeError):
             f"graph {index}: no valid, distinct graph after {attempts} attempts. "
             f"Last problems:\n  {details}"
         )
+
+
+class PartialBatchWarning(UserWarning):
+    """A run returned fewer graphs than requested but kept the valid ones."""
 
 
 # ------------------------------------------------------- stand-in stages
@@ -210,11 +216,43 @@ DEFAULT_STAGES: Dict[str, Callable] = {
 # -------------------------------------------------------------- pipeline
 @dataclass
 class GenerationReport:
-    """Bookkeeping from a :func:`generate` call, useful for the report and CLI."""
+    """Bookkeeping from a :func:`generate` call, useful for the report and CLI.
+
+    Attributes:
+        attempts: Attempts used for each graph that was produced.
+        duplicates_skipped: Fingerprints rejected as duplicates.
+        rejected: Every validation issue from every failed attempt.
+        failed: Indices of graphs that exhausted ``max_attempts``.
+        failed_checks: One check name per failed attempt (the first issue).
+        warnings: Human-readable notes, including the final partial-batch line.
+        requested: How many graphs the run asked for.
+        created: How many valid graphs it returned.
+        failure_counts: Number of rejections per check name.
+    """
 
     attempts: List[int] = field(default_factory=list)
     duplicates_skipped: int = 0
     rejected: List[ValidationIssue] = field(default_factory=list)
+    failed: List[int] = field(default_factory=list)
+    failed_checks: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    requested: int = 0
+    created: int = 0
+    failure_counts: Dict[str, int] = field(default_factory=dict)
+
+    @property
+    def most_common_failure(self) -> Optional[str]:
+        """Check name that rejected the most attempts, or ``None``.
+
+        Ties are broken alphabetically so the CLI line is deterministic.
+        """
+        if not self.failure_counts:
+            return None
+        return sorted(self.failure_counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+
+    def tally(self) -> None:
+        """Recompute ``failure_counts`` from the per-attempt checks."""
+        self.failure_counts = dict(Counter(self.failed_checks))
 
 
 def generate_one(
@@ -250,12 +288,24 @@ def generate_one(
     last_issues: Tuple[ValidationIssue, ...] = ()
     for attempt in range(config.max_attempts):
         rng = graph_rng(config.seed, index, attempt)
-        spec = assign(topology(config, rng), config, rng)
+        try:
+            skeleton = topology(config, rng)
+        except TopologyError as exc:
+            # A fresh attempt cannot fix a settings-level impossibility, and
+            # retrying would multiply the topology stage's own redraw loop.
+            issue = ValidationIssue(message=str(exc), check="topology")
+            last_issues = (issue,)
+            if report is not None:
+                report.rejected.append(issue)
+                report.failed_checks.append(issue.check)
+            break
+        spec = assign(skeleton, config, rng)
         result = validate(spec)
         if not result.ok:
             last_issues = result.issues
             if report is not None:
                 report.rejected.extend(result.issues)
+                report.failed_checks.append(result.issues[0].check)
             continue
         fp = spec.fingerprint()
         if fp in exclude:
@@ -283,19 +333,49 @@ def generate(
     validate: Optional[ValidateFn] = None,
     report: Optional[GenerationReport] = None,
 ) -> List[GraphSpec]:
-    """Generate ``config.num_graphs`` distinct, validated graphs.
+    """Generate up to ``config.num_graphs`` distinct, validated graphs.
+
+    A graph that exhausts ``config.max_attempts`` is skipped, not fatal: the
+    valid graphs are returned and a :class:`PartialBatchWarning` reports how
+    many were made and which check failed most often. The returned list never
+    contains a graph that failed validation.
+
+    Args:
+        config: Generation settings. It is validated before any work starts.
+        topology, assign, validate: Stage overrides; ``None`` uses
+            :data:`DEFAULT_STAGES`.
+        report: Optional report to fill in. One is created when omitted.
+
+    Returns:
+        The valid graphs, possibly fewer than requested.
 
     Raises:
         ConfigError: ``config`` is invalid.
-        GenerationError: Some graph could not be produced.
     """
     config.validate()
+    if report is None:
+        report = GenerationReport()
+    report.requested = config.num_graphs
     seen: set = set()
     specs = []
     for index in range(config.num_graphs):
-        spec = generate_one(
-            config, index, topology, assign, validate, exclude=seen, report=report
-        )
+        try:
+            spec = generate_one(
+                config, index, topology, assign, validate, exclude=seen, report=report
+            )
+        except GenerationError as exc:
+            report.failed.append(index)
+            report.warnings.append(str(exc))
+            continue
         seen.add(spec.fingerprint())
         specs.append(spec)
+    report.created = len(specs)
+    report.tally()
+    if len(specs) < config.num_graphs:
+        line = (
+            f"made {len(specs)} of {config.num_graphs}, most common failure: "
+            f"{report.most_common_failure or 'none'}"
+        )
+        report.warnings.append(line)
+        warnings.warn(line, PartialBatchWarning, stacklevel=2)
     return specs
