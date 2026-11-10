@@ -31,6 +31,9 @@ from fabricpc.fuzzer import registry
 
 IntRange = Tuple[int, int]
 IntOrRange = Union[int, IntRange]
+#: Node types the assign stage can't build yet: they need spatial shapes and
+#: kernel settings in ``NodeSpec.config``. ``validate()`` rejects them.
+UNSUPPORTED_TYPES = frozenset({"ConvNode", "MaxPool", "AvgPool"})
 
 CLAMPED_ROLES = ("input", "output")
 
@@ -333,6 +336,13 @@ class GeneratorConfig:
             raise ConfigError("node_types", "at least one node type is required")
         for name in self.node_types:
             _check_registered("node_types", registry.NODE_TYPES, name)
+            if name in UNSUPPORTED_TYPES:
+                usable = sorted(set(registry.NODE_TYPES) - UNSUPPORTED_TYPES)
+                raise ConfigError(
+                    "node_types",
+                    f"{name!r} can't be generated yet (it needs spatial shapes "
+                    f"and kernel settings). Usable types: {usable}",
+                )
         if not self.hidden_activations:
             raise ConfigError("hidden_activations", "at least one is required")
         for name in self.hidden_activations:

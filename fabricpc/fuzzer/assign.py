@@ -50,9 +50,7 @@ SHAPE_PRESERVING_SLOTS = frozenset(
 #: needs one edge for its required "skip" slot and one for "in".
 MIN_IN_DEGREE = {"SkipConnection": 2}
 
-#: Types that need spatial shapes and kernel settings in ``NodeSpec.config``.
-#: Not generated yet; validate still accepts hand-written specs that use them.
-UNSUPPORTED_TYPES = frozenset({"ConvNode", "MaxPool", "AvgPool"})
+from fabricpc.fuzzer.config import UNSUPPORTED_TYPES, GeneratorConfig
 
 INPUT_TYPE = "IdentityNode"
 OUTPUT_TYPE = "Linear"

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from fabricpc.fuzzer import (
+    ConfigError,
     EdgeSpec,
     GeneratorConfig,
     GraphSpec,
@@ -252,3 +253,10 @@ def test_rejects_cross_entropy_without_softmax():
 def test_train_steps_zero_skips_training():
     nodes, edges = _base()
     assert validate_spec(GraphSpec(tuple(nodes), tuple(edges)), train_steps=0).ok
+
+
+@pytest.mark.parametrize("node_type", ["ConvNode", "MaxPool", "AvgPool"])
+def test_config_rejects_types_assign_cannot_build(node_type):
+    with pytest.raises(ConfigError, match=node_type) as exc:
+        GeneratorConfig(node_types=("Linear", node_type)).validate()
+    assert exc.value.param == "node_types"
