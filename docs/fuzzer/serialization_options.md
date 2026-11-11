@@ -1,7 +1,40 @@
 # Graph serialization options (PROVISIONAL)
 
-Status: **provisional**. The sponsor has not chosen a format. `serialize.py`
-still ships and still works; this note records the three options, the
+Status: **provisional — decision requested**. As of week 3 (2026-11-11) the
+sponsor has not chosen a format, so Part 1 followed its **"no decision"
+branch**: the format is unchanged and hardening + tests landed instead.
+
+## Question for the sponsor (blocking Report 2's SR-F-11 wording)
+
+**Which artifact is canonical for sharing a fuzzed graph?** Pick one:
+
+- **A — model factory**: `as_model_factory(spec)` plus a thin data file
+  (seed, settings, FabricPC version); the graph is rebuilt from FabricPC, not
+  from a separate spec.
+- **B — ORBAX checkpoints**: weights through Orbax; structure through A or C
+  (Orbax cannot store topology natively).
+- **C — Artem's checkpointing PR (trueagi-io/FabricPC#38)**: we align our
+  structure with its `structure.json` and load through its loader once merged.
+- **D — no decision yet**: keep the versioned JSON `GraphSpec` envelope
+  (current `serialize.py`) as the interim format; it is hardened and tested as
+  of this week (see `docs/fuzzer/TEST_LOG.md` rows 11-14).
+
+Two follow-ups decide the shape either way:
+
+1. Is a graph plus its trained weights **one** artifact (structure + params in
+   one checkpoint) or **two** (JSON structure for sharing/diffing, checkpoint
+   for resuming)?
+2. Must reloaded graphs carry a FabricPC version stamp that the loader
+   enforces, or is best-effort enough?
+
+Until then, `serialize.py` remains provisional but fully verified: bad JSON,
+missing fields, fingerprint mismatch and hand edits are all rejected; saved
+batches regenerate identically from their recorded seed
+(`fabricpc-fuzz check --regenerate`), and a reloaded graph can be built and
+trained one step (`fabricpc-fuzz check --train-step`). `as_model_factory`
+stays the supported export path into FabricPC experiments.
+
+`serialize.py` ships and works; this note records the three options, the
 prototype that was built, and a recommendation.
 
 Requirements touched: **SR-F-11** (will be rewritten in Report 2),

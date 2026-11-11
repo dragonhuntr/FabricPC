@@ -6,6 +6,9 @@ Subcommands::
     generate     Generate a batch of graphs and save it to a directory.
     inspect      Print a saved graph (or every graph in a batch directory).
     check        Build saved graphs in FabricPC; exit code 1 if any fail.
+                 ``--train-step`` also runs one real training step, and
+                 ``--regenerate`` re-runs the batch from its seed and shows a
+                 readable diff when a graph no longer reproduces.
 
 Examples::
 
@@ -14,6 +17,8 @@ Examples::
     fabricpc-fuzz generate -n 5 --seed 3 --set num_nodes=[3,6] --out runs/quick
     fabricpc-fuzz inspect runs/demo/graph_0000.json
     fabricpc-fuzz check runs/demo
+    fabricpc-fuzz check --train-step runs/demo
+    fabricpc-fuzz check --regenerate runs/demo
 """
 
 from __future__ import annotations
@@ -76,6 +81,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("check", help="build saved graphs in FabricPC")
     p.add_argument("path", type=Path, help="graph .json file or batch directory")
+    p.add_argument(
+        "--train-step",
+        action="store_true",
+        help="after building, run one training step and require finite values",
+    )
+    p.add_argument(
+        "--regenerate",
+        action="store_true",
+        help="batch directories only: re-run generation from the recorded "
+        "seed/config and print a readable diff for any graph that differs",
+    )
     return parser
 
 
@@ -145,17 +161,55 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 def _cmd_check(args: argparse.Namespace) -> int:
     from fabricpc.fuzzer.build import BuildError, to_fabricpc
 
+    if args.regenerate and not (
+        args.path.is_dir() and (args.path / MANIFEST_FILE).exists()
+    ):
+        print(
+            f"error: --regenerate needs a batch directory with a {MANIFEST_FILE}; "
+            f"{args.path} is not one",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
     failures = 0
     specs = _load_any(args.path)
     for i, spec in enumerate(specs):
         label = spec.metadata.get("graph_index", i)
         try:
             to_fabricpc(spec)
-            print(f"graph {label}: ok")
         except BuildError as exc:
             failures += 1
             print(f"graph {label}: FAILED ({exc.stage}) {exc}")
+            continue
+        if args.train_step:
+            from fabricpc.fuzzer.validity import validate_spec
+
+            result = validate_spec(spec, train_steps=1)
+            if not result.ok:
+                failures += 1
+                print(f"graph {label}: FAILED {result.issues[0]}")
+                continue
+            print(f"graph {label}: ok (built, 1 training step, finite values)")
+        else:
+            print(f"graph {label}: ok")
     print(f"{len(specs) - failures}/{len(specs)} built successfully")
+
+    if args.regenerate:
+        from fabricpc.fuzzer.serialize import load_manifest, regenerate_batch
+
+        diff_lines = regenerate_batch(args.path)
+        if diff_lines:
+            failures += len(diff_lines)
+            for line in diff_lines:
+                print(line)
+            print("regeneration from the recorded seed does NOT reproduce the batch")
+        else:
+            manifest = load_manifest(args.path)
+            seed = (manifest.get("config") or {}).get("seed")
+            print(
+                f"regenerated {len(specs)} graphs from seed {seed}: "
+                "all fingerprints identical"
+            )
     return EXIT_FAILED if failures else EXIT_OK
 
 

@@ -186,6 +186,132 @@ def load_batch(directory: PathLike, verify: bool = True) -> List[GraphSpec]:
     return specs
 
 
+def describe_diff(before: GraphSpec, after: GraphSpec) -> List[str]:
+    """Human-readable line diff of two specs' structure.
+
+    Used by :func:`regenerate_batch` when a regenerated graph no longer matches
+    the saved one: each line names the node or edge that differs and shows both
+    values, so a reader can see which stage or setting drifted between runs.
+    Metadata is ignored, like in :meth:`~fabricpc.fuzzer.spec.GraphSpec.fingerprint`.
+
+    Args:
+        before: The saved spec.
+        after: The regenerated spec.
+
+    Returns:
+        One line per difference (removed/added/changed nodes, then
+        removed/added edges). Empty when the structures are equal.
+    """
+    lines: List[str] = []
+    before_nodes = {n.name: n.to_dict() for n in before.nodes}
+    after_nodes = {n.name: n.to_dict() for n in after.nodes}
+    for name in sorted(set(before_nodes) - set(after_nodes)):
+        lines.append(f"node {name!r} is in the saved graph but not the new one")
+    for name in sorted(set(after_nodes) - set(before_nodes)):
+        lines.append(f"node {name!r} is new (fields: {sorted(after_nodes[name])})")
+    for name in sorted(set(before_nodes) & set(after_nodes)):
+        old, new = before_nodes[name], after_nodes[name]
+        for field_name in sorted(set(old) | set(new)):
+            if old.get(field_name) != new.get(field_name):
+                lines.append(
+                    f"node {name!r} field {field_name!r}: "
+                    f"saved {old.get(field_name)!r}, new {new.get(field_name)!r}"
+                )
+    before_edges = {e.key: e for e in before.edges}
+    after_edges = {e.key: e for e in after.edges}
+    for key in sorted(set(before_edges) - set(after_edges)):
+        lines.append(f"edge {key!r} is in the saved graph but not the new one")
+    for key in sorted(set(after_edges) - set(before_edges)):
+        lines.append(f"edge {key!r} is new")
+    return lines
+
+
+def regenerate_graph(spec: GraphSpec, exclude: Sequence[str] = ()) -> GraphSpec:
+    """Regenerate one saved graph from the seed recorded in its metadata.
+
+    A spec from :func:`fabricpc.fuzzer.generate` carries ``config`` and
+    ``graph_index`` in its metadata, which together with the master seed fully
+    determine it, so a saved graph can be rebuilt without the original run.
+
+    Args:
+        spec: A saved spec (e.g. from :func:`load`).
+        exclude: Fingerprints to skip as duplicates, mirroring how a batch
+            generation deduplicates earlier graphs in the batch.
+
+    Returns:
+        The freshly generated spec; compare with
+        :meth:`~fabricpc.fuzzer.spec.GraphSpec.fingerprint` or
+        :func:`describe_diff`.
+
+    Raises:
+        SerializationError: The spec carries no generation metadata, so it was
+            not produced by the pipeline and cannot be regenerated.
+    """
+    from fabricpc.fuzzer.config import GeneratorConfig
+    from fabricpc.fuzzer.pipeline import generate_one
+
+    missing = [k for k in ("config", "graph_index") if k not in spec.metadata]
+    if missing:
+        raise SerializationError(
+            f"cannot regenerate from seed: metadata is missing {missing}; "
+            "only specs produced by generate() (or saved batches reloaded "
+            "from them) record the config and graph index"
+        )
+    config = GeneratorConfig.from_dict(spec.metadata["config"])
+    return generate_one(config, int(spec.metadata["graph_index"]), exclude=set(exclude))
+
+
+def regenerate_batch(directory: PathLike) -> List[str]:
+    """Re-run generation from a saved batch's seed and report every difference.
+
+    Reads the generator config from ``manifest.json``, regenerates each graph
+    from its recorded index (which fixes its per-graph seed), and compares
+    fingerprints against the manifest. An empty result proves the batch is
+    reproducible from its seed on this machine and FabricPC version.
+
+    Args:
+        directory: A batch directory written by :func:`save_batch`.
+
+    Returns:
+        Readable difference lines — empty means every graph regenerated
+        identically. Each mismatched graph contributes one summary line plus
+        the :func:`describe_diff` lines showing what changed.
+    """
+    from fabricpc.fuzzer.config import GeneratorConfig
+    from fabricpc.fuzzer.pipeline import GenerationError, generate_one
+
+    directory = Path(directory)
+    manifest = load_manifest(directory)
+    raw_config = manifest.get("config")
+    if raw_config is None:
+        raise SerializationError(
+            f"{directory / MANIFEST_FILE}: no 'config' recorded, cannot "
+            "regenerate from seed; save batches via the CLI or pass config= "
+            "to save_batch"
+        )
+    config = GeneratorConfig.from_dict(raw_config).validate()
+    lines: List[str] = []
+    seen: set = set()
+    for i, entry in enumerate(manifest["graphs"]):
+        spec = load(directory / entry["file"])
+        index = int(spec.metadata.get("graph_index", i))
+        try:
+            fresh = generate_one(config, index, exclude=seen)
+        except GenerationError as exc:
+            lines.append(f"{entry['file']} (graph {index}): regeneration failed: {exc}")
+            continue
+        seen.add(fresh.fingerprint())
+        saved_fp = entry.get("fingerprint") or spec.fingerprint()
+        if fresh.fingerprint() != saved_fp:
+            lines.append(
+                f"{entry['file']} (graph {index}): fingerprint {saved_fp[:12]} "
+                f"does not match regeneration from seed {config.seed}: "
+                f"{fresh.fingerprint()[:12]}"
+            )
+            lines.extend(f"  {d}" for d in describe_diff(spec, fresh))
+    return lines
+
+
 def load_manifest(directory: PathLike) -> Dict[str, Any]:
     """Read and check ``directory/manifest.json``."""
     path = Path(directory) / MANIFEST_FILE
