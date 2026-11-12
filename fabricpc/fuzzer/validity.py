@@ -133,7 +133,7 @@ def _check_registry(spec: GraphSpec) -> list:
         return issues
 
     for n in spec.nodes:
-        needs = ENERGY_NEEDS_ACTIVATION.get(n.energy)
+        needs = ENERGY_NEEDS_ACTIVATION.get(n.energy) if n.energy else None
         if needs and n.activation not in needs:
             issues.append(
                 _issue(

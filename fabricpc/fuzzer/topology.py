@@ -47,7 +47,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
-from fabricpc.fuzzer.config import GeneratorConfig
+from fabricpc.fuzzer.config import GeneratorConfig, as_range
 from fabricpc.fuzzer.spec import INPUT_NAME, OUTPUT_NAME, Skeleton
 
 TOPOLOGY_MODELS = ("random_dag", "erdos_renyi", "barabasi_albert", "watts_strogatz")
@@ -74,7 +74,7 @@ def _max_sources(position: int, n: int, cycles: bool) -> int:
 
 def _degree_bounds(n: int, config: GeneratorConfig) -> List[Tuple[int, int]]:
     """Per-position ``(lo, hi)`` in-degree bounds for positions 1..n+1."""
-    d_lo, d_hi = config.in_degree
+    d_lo, d_hi = as_range(config.in_degree)
     clamped = {node.role: node for node in config.clamped_nodes}
     bounds = []
     for k in range(1, n + 2):
@@ -99,7 +99,7 @@ def _edge_window(n: int, config: GeneratorConfig) -> Optional[Tuple[int, int]]:
     clamped = {node.role: node for node in config.clamped_nodes}
     input_out = clamped["input"].out_degree if "input" in clamped else None
     if config.out_degree is not None:
-        o_lo, o_hi = config.out_degree
+        o_lo, o_hi = as_range(config.out_degree)
         # Total edges = input edges + hidden outgoing edges.
         lo = max(lo, (input_out if input_out is not None else 1) + n * o_lo)
         hi = min(
@@ -107,22 +107,24 @@ def _edge_window(n: int, config: GeneratorConfig) -> Optional[Tuple[int, int]]:
             (input_out if input_out is not None else n + 1) + n * o_hi,
         )
     if config.num_edges is not None:
-        lo = max(lo, config.num_edges[0])
-        hi = min(hi, config.num_edges[1])
+        e_rng = as_range(config.num_edges)
+        lo = max(lo, e_rng[0])
+        hi = min(hi, e_rng[1])
     return (lo, hi) if lo <= hi else None
 
 
 def _choose_hidden_count(
     config: GeneratorConfig, rng: np.random.Generator
 ) -> Tuple[int, Tuple[int, int]]:
-    lo, hi = config.num_nodes
+    lo, hi = as_range(config.num_nodes)
     eligible = [
         (n, w) for n in range(lo, hi + 1) if (w := _edge_window(n, config)) is not None
     ]
     if not eligible:
         raise TopologyError(
-            f"no hidden-node count in num_nodes={list(config.num_nodes)} admits "
-            f"num_edges={config.num_edges} with in_degree={list(config.in_degree)}"
+            f"no hidden-node count in num_nodes={list(as_range(config.num_nodes))} "
+            f"admits num_edges={config.num_edges} with "
+            f"in_degree={list(as_range(config.in_degree))}"
         )
     n, window = eligible[int(rng.integers(len(eligible)))]
     return n, window
@@ -213,7 +215,7 @@ def _raise_min_out_degrees(
     edges and the output's in-degree is already at its bound).
     """
     assert config.out_degree is not None
-    target, _ = config.out_degree
+    target, _ = as_range(config.out_degree)
     edges = list(edges)
     edge_set = set(edges)
     out: Dict[int, int] = {}
@@ -294,7 +296,7 @@ def _draw_once(
     cycles = config.allow_cycles
     clamped = {node.role: node for node in config.clamped_nodes}
     input_target = clamped["input"].out_degree if "input" in clamped else None
-    out_cap = config.out_degree[1] if config.out_degree is not None else None
+    out_cap = as_range(config.out_degree)[1] if config.out_degree is not None else None
 
     n, window = _choose_hidden_count(config, rng)
     bounds = _degree_bounds(n, config)
@@ -376,9 +378,9 @@ def _draw_once(
 
     for k in range(1, n + 1):
         if backward[k - 1]:
-            later = list(range(k + 1, n + 1))
+            later_pool = list(range(k + 1, n + 1))
             for p in _pick(
-                later,
+                later_pool,
                 backward[k - 1],
                 model,
                 k,
@@ -413,13 +415,13 @@ def skeleton_issues(skeleton: Skeleton, config: GeneratorConfig) -> List[str]:
     inp, out = skeleton.input, skeleton.output
     hidden = list(skeleton.hidden)
     nodes = set(skeleton.all_nodes)
-    n_lo, n_hi = config.num_nodes
+    n_lo, n_hi = as_range(config.num_nodes)
     if not n_lo <= len(hidden) <= n_hi:
         issues.append(f"{len(hidden)} hidden nodes outside num_nodes {[n_lo, n_hi]}")
     if len(set(hidden)) != len(hidden) or {inp, out} & set(hidden):
         issues.append("hidden names are not unique or reuse input/output")
     if config.num_edges is not None:
-        e_lo, e_hi = config.num_edges
+        e_lo, e_hi = as_range(config.num_edges)
         if not e_lo <= len(skeleton.edges) <= e_hi:
             issues.append(
                 f"{len(skeleton.edges)} edges outside num_edges {[e_lo, e_hi]}"
@@ -440,7 +442,7 @@ def skeleton_issues(skeleton: Skeleton, config: GeneratorConfig) -> List[str]:
             issues.append(f"edge {s}->{t} leaves the output")
         preds[t].add(s)
         succs[s].add(t)
-    d_lo, d_hi = config.in_degree
+    d_lo, d_hi = as_range(config.in_degree)
     for v in hidden:
         if not d_lo <= len(preds[v]) <= d_hi:
             issues.append(
@@ -461,7 +463,7 @@ def skeleton_issues(skeleton: Skeleton, config: GeneratorConfig) -> List[str]:
         if len(succs[inp]) != want:
             issues.append(f"{inp} has out-degree {len(succs[inp])}, clamped to {want}")
     if config.out_degree is not None:
-        o_lo, o_hi = config.out_degree
+        o_lo, o_hi = as_range(config.out_degree)
         for v in hidden:
             deg = len(succs[v])
             if not o_lo <= deg <= o_hi:

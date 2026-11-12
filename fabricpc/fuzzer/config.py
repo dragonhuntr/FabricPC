@@ -57,6 +57,21 @@ class ConfigError(ValueError):
         super().__init__(f"{param}: {message}")
 
 
+def as_range(value: IntOrRange) -> IntRange:
+    """Normalize ``5`` or ``[2, 5]`` to an inclusive ``(lo, hi)`` tuple.
+
+    A constructed :class:`GeneratorConfig` already stores ``num_nodes``,
+    ``in_degree``, ``out_degree`` and ``num_edges`` as tuples (``__post_init__``
+    normalizes them), but the declared field types stay :data:`IntOrRange` so
+    callers may still pass plain ints. Code that unpacks one of those fields
+    calls this helper to make the tuple shape explicit to the type checker as
+    well as at runtime (SR-NF-DV-03).
+    """
+    if isinstance(value, (list, tuple)):
+        return (int(value[0]), int(value[1]))
+    return (int(value), int(value))
+
+
 def _as_range(param: str, value: Any) -> IntRange:
     """Normalize ``5`` or ``[2, 5]`` to an inclusive ``(lo, hi)`` tuple."""
     if isinstance(value, bool):
@@ -97,12 +112,13 @@ class ClampedNode:
     trained and scored on the same data.
 
     Attributes:
-        role: ``"input"`` or ``"output"``.
-        node_type: Registry key of the FabricPC node class (for example
-            ``"Linear"`` or ``"IdentityNode"``).
-        shape: Shape of one sample, excluding the batch dimension.
-        in_degree: Exact number of incoming edges.
-        out_degree: Exact number of outgoing edges.
+        role (str, required): ``"input"`` or ``"output"``.
+        node_type (str, required): Registry key of the FabricPC node class
+            (for example ``"Linear"`` or ``"IdentityNode"``).
+        shape (list of ints, required): Shape of one sample, excluding the
+            batch dimension.
+        in_degree (int, required): Exact number of incoming edges.
+        out_degree (int, required): Exact number of outgoing edges.
     """
 
     role: str
@@ -166,34 +182,55 @@ def _as_clamped_nodes(value: Any) -> Tuple[ClampedNode, ...]:
 class GeneratorConfig:
     """Settings that control which graphs the fuzzer generates.
 
+    Every setting below is listed with its type and default value (SR-NF-US-01);
+    ranges may be given as a plain int or an inclusive ``[min, max]`` list, and
+    are normalized to ``(min, max)`` tuples when the config is constructed.
+
     Attributes:
-        num_graphs: How many distinct graphs to return.
-        seed: Master seed. Together with the graph's index it fully determines
-            each graph (see :mod:`fabricpc.fuzzer.seeding`).
-        num_nodes: Number of hidden nodes (excluding input and output), as an
-            int or inclusive ``[min, max]`` range.
-        num_edges: Total number of edges, or ``None`` to let the topology
-            generator decide.
-        in_degree: Allowed number of incoming edges per non-input node.
-        out_degree: Allowed number of outgoing edges per non-clamped (hidden)
-            node, or ``None`` for no limit. The input's and output's degrees are
-            fixed by ``clamped_nodes``.
-        node_types: Node types the generator may use for hidden nodes.
-        allow_cycles: Allow feedback edges (recurrent/cyclic graphs).
-        unroll: Cycle traversals used when building a cyclic graph.
-        input_shape: Shape of the input node (one data sample).
-        output_shape: Shape of the output node (one target).
-        hidden_sizes: Feature sizes to choose from for hidden nodes.
-        hidden_activations: Activations to choose from for hidden nodes.
-        output_activation: Activation of the output node.
-        output_energy: Energy functional of the output node.
-        max_attempts: Generation attempts per graph before giving up.
-        constraints: Free-form constraints supplied by a person or by an
-            automated feedback loop. Unrecognized keys are kept and passed to
-            every stage, which reads the ones it understands.
-        clamped_nodes: Zero or two :class:`ClampedNode` entries that fix the
-            input and output node for every graph in the batch. When present,
-            their shapes also set ``input_shape`` and ``output_shape``.
+        num_graphs (int, default 1): How many distinct graphs to return.
+        seed (int, default 0): Master seed. Together with the graph's index it
+            fully determines each graph (see :mod:`fabricpc.fuzzer.seeding`).
+        num_nodes (int or [min, max], default [2, 6]): Number of hidden nodes
+            (excluding input and output).
+        num_edges (int or [min, max], or None, default None): Total number of
+            edges, or ``None`` to let the topology generator decide.
+        in_degree (int or [min, max], default [1, 3]): Allowed number of
+            incoming edges per non-input node.
+        out_degree (int or [min, max], or None, default None): Allowed number
+            of outgoing edges per non-clamped (hidden) node, or ``None`` for no
+            limit. The input's and output's degrees are fixed by
+            ``clamped_nodes``.
+        node_types (list of node-type names, default ["Linear"]): Node types
+            the generator may use for hidden nodes; keys of
+            :data:`fabricpc.fuzzer.registry.NODE_TYPES`.
+        allow_cycles (bool, default False): Allow feedback edges
+            (recurrent/cyclic graphs).
+        unroll (int, default 2): Cycle traversals used when building a cyclic
+            graph.
+        input_shape (list of ints, default [784]): Shape of the input node
+            (one data sample, no batch dimension).
+        output_shape (list of ints, default [10]): Shape of the output node
+            (one target).
+        hidden_sizes (list of ints, default [64, 128, 256]): Feature sizes to
+            choose from for hidden nodes.
+        hidden_activations (list of activation names, default ["relu", "tanh", "sigmoid"]):
+            Activations to choose from for hidden nodes; keys of
+            :data:`fabricpc.fuzzer.registry.ACTIVATIONS`.
+        output_activation (activation name, default "softmax"): Activation of
+            the output node.
+        output_energy (energy name, default "cross_entropy"): Energy
+            functional of the output node; keys of
+            :data:`fabricpc.fuzzer.registry.ENERGIES`.
+        max_attempts (int, default 1000): Generation attempts per graph
+            before the graph is dropped from the batch.
+        constraints (JSON object, default {}): Free-form constraints supplied
+            by a person or by an automated feedback loop. Unrecognized keys
+            are kept and passed to every stage, which reads the ones it
+            understands.
+        clamped_nodes (list of ClampedNode entries, default []): Zero or two
+            :class:`ClampedNode` entries that fix the input and output node
+            for every graph in the batch. When present, their shapes also set
+            ``input_shape`` and ``output_shape``.
     """
 
     num_graphs: int = 1
@@ -263,10 +300,10 @@ class GeneratorConfig:
                 "allow_cycles", f"expected true/false, got {self.allow_cycles!r}"
             )
 
-        n_lo, n_hi = self.num_nodes
-        _check_range("num_nodes", self.num_nodes, minimum=0)
-        _check_range("in_degree", self.in_degree, minimum=1)
-        d_lo, d_hi = self.in_degree
+        n_lo, n_hi = as_range(self.num_nodes)
+        _check_range("num_nodes", (n_lo, n_hi), minimum=0)
+        d_lo, d_hi = as_range(self.in_degree)
+        _check_range("in_degree", (d_lo, d_hi), minimum=1)
 
         # Every node except the input must be able to receive in_degree[0]
         # edges from distinct other nodes. With no cycles, the k-th node in
@@ -287,8 +324,9 @@ class GeneratorConfig:
             )
 
         if self.out_degree is not None:
-            _check_range("out_degree", self.out_degree, minimum=1)
-            o_lo, o_hi = self.out_degree
+            o_rng = as_range(self.out_degree)
+            _check_range("out_degree", o_rng, minimum=1)
+            o_lo, o_hi = o_rng
             if not self.allow_cycles and o_lo > 1:
                 raise ConfigError(
                     "out_degree",
@@ -311,13 +349,12 @@ class GeneratorConfig:
 
         clamped = {node.role: node for node in self.clamped_nodes}
         output_in_hi = clamped["output"].in_degree if "output" in clamped else d_hi
-        output_in_lo = (
-            clamped["output"].in_degree if "output" in clamped else self.in_degree[0]
-        )
+        output_in_lo = clamped["output"].in_degree if "output" in clamped else d_lo
 
         if self.num_edges is not None:
-            _check_range("num_edges", self.num_edges, minimum=1)
-            e_lo, e_hi = self.num_edges
+            e_rng = as_range(self.num_edges)
+            _check_range("num_edges", e_rng, minimum=1)
+            e_lo, e_hi = e_rng
             # Each hidden node and the output need at least one in-edge.
             min_needed = n_lo + output_in_lo
             if e_hi < min_needed:

@@ -171,3 +171,17 @@ extend-select = ["B006"]
 markers = [
     "slow: long-running convergence tests (deselect with -m 'not slow')",
 ]
+
+# SR-NF-DV-03: the fuzzer package is kept mypy-clean (`mypy fabricpc/fuzzer`,
+# run in CI). follow_imports=silent keeps the scope on our package: FabricPC's
+# core modules are analyzed for types but their (many, pre-existing) errors
+# are upstream's to fix, not reported here. The fuzzer package itself must
+# report zero errors -- no blanket `# type: ignore` or module exclusions.
+[tool.mypy]
+python_version = "3.11"
+follow_imports = "silent"
+
+[[tool.mypy.overrides]]
+# No py.typed marker and no stub packages for these.
+module = ["optax.*", "psutil.*"]
+ignore_missing_imports = true

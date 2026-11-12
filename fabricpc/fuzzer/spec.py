@@ -346,7 +346,7 @@ class GraphSpec:
         return "\n".join(lines)
 
 
-def _check_keys(data: Mapping[str, Any], required: set, cls: type) -> None:
+def _check_keys(data: Mapping[str, Any], required: set, cls: Any) -> None:
     if not isinstance(data, Mapping):
         raise SpecError(f"{cls.__name__} must be a JSON object, got {type(data)}")
     allowed = {f for f in cls.__dataclass_fields__}

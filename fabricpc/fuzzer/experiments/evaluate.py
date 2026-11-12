@@ -144,6 +144,7 @@ class EvalSettings:
         object.__setattr__(self, "training_seeds", seeds)
 
     def make_optimizer(self) -> optax.GradientTransformation:
+        """Return ``optimizer``, or ``optax.adam(learning_rate)`` when it is ``None``."""
         return self.optimizer or optax.adam(self.learning_rate)
 
 
@@ -207,7 +208,8 @@ class PeakMemory:
     def __exit__(self, *exc) -> None:
         self._sample()
         self._stop.set()
-        self._thread.join()
+        if self._thread is not None:
+            self._thread.join()
 
 
 @dataclass(frozen=True)
@@ -249,14 +251,17 @@ class ModelResult:
 
     @property
     def training_seeds(self) -> List[int]:
+        """Training seeds used, in run order."""
         return [r.seed for r in self.runs]
 
     @property
     def accuracies(self) -> List[float]:
+        """Test accuracy per training seed."""
         return [r.accuracy for r in self.runs]
 
     @property
     def accuracy_mean(self) -> float:
+        """Mean test accuracy over the training seeds."""
         return float(descriptive_stats(np.asarray(self.accuracies)).mean)
 
     @property
@@ -266,10 +271,12 @@ class ModelResult:
 
     @property
     def peak_memory_bytes(self) -> int:
+        """Worst peak memory observed across the runs."""
         return max(r.peak_memory_bytes for r in self.runs)
 
     @property
     def train_time_mean_s(self) -> float:
+        """Mean wall-clock training time over the runs, in seconds."""
         return float(np.mean([r.train_time_s for r in self.runs]))
 
     def to_dict(self) -> Dict[str, Any]:

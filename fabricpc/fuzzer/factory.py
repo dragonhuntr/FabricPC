@@ -53,16 +53,27 @@ def as_model_factory(
         BuildError: ``spec`` is malformed or FabricPC rejects it.
     """
     structure = to_fabricpc(spec, inference=inference, unroll=unroll)
+    return _GraphModelFactory(spec, structure)
 
-    def factory(rng_key: jax.Array) -> tuple[GraphParams, GraphStructure]:
-        return initialize_params(structure, rng_key), structure
 
-    # Handy for debugging and for the demo's provenance line; not part of the
-    # protocol the harness uses.
-    factory.spec = spec
-    factory.__name__ = f"factory_{spec.fingerprint()[:12]}"
-    factory.__doc__ = f"Model factory for fuzzed graph {spec.fingerprint()[:12]}."
-    return factory
+class _GraphModelFactory:
+    """Callable model factory that keeps its ``GraphSpec`` for debugging.
+
+    Instances satisfy the ``ModelFactory`` protocol — call one with a JAX key
+    to get ``(params, structure)`` — and expose ``spec`` for the demo's
+    provenance line. ``__name__`` and ``__doc__`` are set to mimic the closure
+    this class replaces, so tracebacks and repr-style debugging still name the
+    graph.
+    """
+
+    def __init__(self, spec: GraphSpec, structure: GraphStructure) -> None:
+        self.spec = spec
+        self._structure = structure
+        self.__name__ = f"factory_{spec.fingerprint()[:12]}"
+        self.__doc__ = f"Model factory for fuzzed graph {spec.fingerprint()[:12]}."
+
+    def __call__(self, rng_key: jax.Array) -> tuple[GraphParams, GraphStructure]:
+        return initialize_params(self._structure, rng_key), self._structure
 
 
 __all__ = ["ModelFactory", "as_model_factory"]

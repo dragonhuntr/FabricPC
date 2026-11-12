@@ -33,7 +33,7 @@ from typing import Callable, Dict, List, Optional, Protocol, Tuple
 import numpy as np
 
 from fabricpc.fuzzer import __version__
-from fabricpc.fuzzer.config import GeneratorConfig
+from fabricpc.fuzzer.config import GeneratorConfig, as_range
 from fabricpc.fuzzer.seeding import graph_rng, graph_seed
 from fabricpc.fuzzer.spec import (
     ROLE_HIDDEN,
@@ -79,24 +79,31 @@ class ValidationResult:
 
     @property
     def ok(self) -> bool:
+        """True when the validate stage found no issues."""
         return not self.issues
 
     @classmethod
     def passed(cls) -> "ValidationResult":
+        """Result with no issues (SR-F-07 contract: builds and trains)."""
         return cls(())
 
     @classmethod
     def failed(cls, *issues: ValidationIssue) -> "ValidationResult":
+        """Result carrying every issue found, each naming its node or edge."""
         return cls(tuple(issues))
 
 
 class TopologyFn(Protocol):
+    """Stage 1 signature: ``(config, rng) -> Skeleton`` (see stage_contract.md)."""
+
     def __call__(
         self, config: GeneratorConfig, rng: np.random.Generator
     ) -> Skeleton: ...
 
 
 class AssignFn(Protocol):
+    """Stage 2 signature: ``(skeleton, config, rng) -> GraphSpec`` (see stage_contract.md)."""
+
     def __call__(
         self, skeleton: Skeleton, config: GeneratorConfig, rng: np.random.Generator
     ) -> GraphSpec: ...
@@ -139,7 +146,7 @@ def chain_topology(config: GeneratorConfig, rng: np.random.Generator) -> Skeleto
     the shape of a sequential baseline. The default topology stage is
     :func:`fabricpc.fuzzer.topology.random_dag_topology`.
     """
-    lo, hi = config.num_nodes
+    lo, hi = as_range(config.num_nodes)
     n = int(rng.integers(lo, hi + 1))
     hidden = tuple(f"h{i}" for i in range(n))
     chain = (INPUT_NAME, *hidden, OUTPUT_NAME)
