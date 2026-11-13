@@ -1,0 +1,75 @@
+name: Fuzzer non-functional checks
+
+# The Report 1.5 SR-NF requirements turned into CI steps. Each step's name carries its requirement ID so the Appendix T row
+# can point straight at the log line. The requirement-to-test rows that are
+# plain pytest live in tests/test_fuzzer_nonfunctional.py and run inside the
+# coverage step.
+#
+#   SR-NF-DV-01  pre-commit run --all-files (Ruff + Black)
+#   SR-NF-DV-02  fuzzer suite with --cov-fail-under=80
+#   SR-NF-DV-03  mypy on fabricpc/fuzzer, 0 errors
+#   SR-NF-OP-01  runs on ubuntu-latest only
+#   SR-NF-OP-02  Python 3.11 and 3.13
+#   SR-NF-OP-03  CPU JAX (the base install ships jax[cpu]; no CUDA extra here)
+#   SR-NF-PE-02  the default (non-slow) run finishes under 5 minutes
+on:
+  push:
+    paths:
+      - "fabricpc/fuzzer/**"
+      - "fabricpc/core/**"
+      - "fabricpc/nodes/**"
+      - "tests/test_fuzzer_*.py"
+      - "pyproject.toml"
+      - ".pre-commit-config.yaml"
+      - ".github/workflows/fuzzer-nf.yml"
+  pull_request:
+    paths:
+      - "fabricpc/fuzzer/**"
+      - "fabricpc/core/**"
+      - "fabricpc/nodes/**"
+      - "tests/test_fuzzer_*.py"
+      - "pyproject.toml"
+      - ".pre-commit-config.yaml"
+      - ".github/workflows/fuzzer-nf.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    # SR-NF-OP-01: ubuntu-latest. SR-NF-OP-02: the declared Python floor and
+    # ceiling. SR-NF-OP-03: CPU JAX comes from the base dependency; the CUDA
+    # extras are deliberately not installed.
+    name: nf (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install FabricPC from this ref (CPU JAX)
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev]"
+      - name: SR-NF-DV-01 pre-commit run --all-files
+        run: pre-commit run --all-files
+      - name: SR-NF-DV-03 mypy fabricpc/fuzzer with zero errors
+        run: mypy fabricpc/fuzzer
+      - name: SR-NF-DV-02 + SR-NF-PE-02 fuzzer suite, coverage >= 80, under 5 min
+        # The slow-marked performance measurements (SR-NF-PE-01, SR-NF-DC-05)
+        # are deselected here; they run on demand with `pytest -m slow` and
+        # are reported in docs/fuzzer/STATUS.md.
+        run: |
+          start=$(date +%s)
+          pytest tests/test_fuzzer_*.py -m "not slow" -q \
+            --cov=fabricpc/fuzzer --cov-fail-under=80
+          elapsed=$(( $(date +%s) - start ))
+          echo "SR-NF-PE-02: default fuzzer CI run took ${elapsed}s (budget 300s)"
+          test "${elapsed}" -lt 300

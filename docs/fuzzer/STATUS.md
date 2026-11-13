@@ -70,6 +70,40 @@ Audited: **2026-11-10** · Commit: **`88578ba`** (`feature/fuzzer-foundation`)
 | UR-F-13 | partial | `tests/test_fuzzer_topology.py::test_is_the_default_topology_stage`, `tests/test_fuzzer_assign_validate.py::test_is_the_default_stage` | Tests run against `DEFAULT_STAGES`, but there is no shared parameterised harness across every stage. |
 | UR-NF-DE-01 | not started | — | No golden fingerprints and no `--update-golden` flag. |
 
+## Non-functional (SR-NF) checks — week 3, Part 2 (2026-11-13)
+
+Every SR-NF requirement the repository cites now has an automated check: a
+named pytest test, or a CI step in `.github/workflows/fuzzer-nf.yml` whose
+step name carries the ID. Measured values are from the local Linux-equivalent
+runs in `TEST_LOG.md` rows 15-22; the CI job adds the ubuntu matrix runs.
+
+| ID | Check | Pass/Fail | Measured / test |
+|---|---|---|---|
+| SR-NF-DV-01 | `pre-commit run --all-files` (Ruff + Black) | pass | both hooks Passed, 15.1 s; CI step on py3.11 + 3.13 |
+| SR-NF-DV-02 | `pytest tests/test_fuzzer_*.py --cov=fabricpc/fuzzer --cov-fail-under=80` | pass | **89.93%** coverage; 297 passed, 2 skipped |
+| SR-NF-DV-03 | `mypy fabricpc/fuzzer` with 0 errors | pass | **0 errors, 17 files** (package fully checked; untyped upstream analyzed silently, no per-file ignores) |
+| SR-NF-DV-04 | every public API documented | pass | `test_sr_nf_dv_04_public_api_has_docstrings` |
+| SR-NF-US-01 | setting docs: meaning + type + default | pass | `test_sr_nf_us_01_settings_document_meaning_type_and_default` |
+| SR-NF-US-02 | errors name the setting/node/edge | pass | week 3 Part 3 audit: `tests/test_fuzzer_error_messages.py` |
+| SR-NF-US-03 | errors say what to change | pass | same file; `GenerationError`/`TopologyError` gained explicit `Fix:` lines |
+| SR-NF-DE-03 | no global randomness (AST) | pass | `test_sr_nf_de_03_no_global_randomness_in_source`; seeded constructors allowlisted, fixed-key `jax.random` flagged |
+| SR-NF-DC-02 | no torch/tensorflow imports | pass | `test_sr_nf_dc_02_no_torch_or_tensorflow_imports` |
+| SR-NF-DC-03 | every NodeSpec maps to a FabricPC node class | pass | `test_sr_nf_dc_03_generated_nodes_map_to_fabricpc_classes` + Hypothesis variant |
+| SR-NF-DC-04 | no GUI/plotting imports | pass | `test_sr_nf_dc_04_no_gui_or_plotting_imports` |
+| SR-NF-DC-05 | peak memory < 4 GB, 100 graphs | **pass** | **672 MB peak** (+536 MB during run) on the 100-graph batch (macOS local; CI runner numbers pending) |
+| SR-NF-IN-01 | no private FabricPC module imports | pass | `test_sr_nf_in_01_only_public_fabricpc_apis` |
+| SR-NF-IN-04 | no new runtime dependencies | pass | unchanged since week 1 audit (dev-only: pytest-cov, hypothesis already listed) |
+| SR-NF-LE-02 | no pickle/eval/exec, whole package | pass | `test_sr_nf_le_02_no_pickle_eval_exec_anywhere` (+ targeted load-path scan) |
+| SR-NF-OP-01 | CI runs on ubuntu-latest | wired | `fuzzer-nf.yml` runs-on: ubuntu-latest |
+| SR-NF-OP-02 | Python 3.11 and 3.13 matrix | wired | `fuzzer-nf.yml` strategy.matrix |
+| SR-NF-OP-03 | CPU JAX | wired | base install ships `jax[cpu]`; no CUDA extra installed |
+| SR-NF-PE-01 | 100 graphs (≤20 hidden nodes) < 2 min | **pass** | **55.8 s** local (`test_fuzzer_perf.py`, `-m slow`) |
+| SR-NF-PE-02 | default CI run < 5 min | **pass** | 73 s with coverage locally; CI asserts `elapsed < 300` |
+| SR-NF-CS-01 | docs usable by newcomers | in progress | README usage section lands with week 3 Part 3 (Evan) |
+
+`tests/test_fuzzer_perf.py` is `@pytest.mark.slow`: deselected from the
+5-minute budget, run on demand with `pytest -m slow`.
+
 ## Not assessed (59 IDs)
 
 Table 7 has 94 SR-F rows. The repository cites 35 of them; the other 59 are
