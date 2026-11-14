@@ -124,7 +124,9 @@ def _choose_hidden_count(
         raise TopologyError(
             f"no hidden-node count in num_nodes={list(as_range(config.num_nodes))} "
             f"admits num_edges={config.num_edges} with "
-            f"in_degree={list(as_range(config.in_degree))}"
+            f"in_degree={list(as_range(config.in_degree))}. "
+            "Fix: widen num_nodes or num_edges, or lower the degree minimums "
+            "(SR-NF-US-02)."
         )
     n, window = eligible[int(rng.integers(len(eligible)))]
     return n, window
@@ -281,7 +283,9 @@ def random_dag_topology(config: GeneratorConfig, rng: np.random.Generator) -> Sk
         last_issues = issues
     raise TopologyError(
         "could not draw a skeleton satisfying the degree and clamped-node "
-        f"settings after {MAX_DRAWS} draws: {'; '.join(last_issues)}"
+        f"settings after {MAX_DRAWS} draws: {'; '.join(last_issues)}. "
+        "Fix: widen the degree ranges, num_edges, or clamped in/out-degrees "
+        "so random draws can satisfy them (SR-NF-US-02)."
     )
 
 

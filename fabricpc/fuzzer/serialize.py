@@ -59,7 +59,10 @@ def from_document(doc: Mapping[str, Any], verify: bool = True) -> GraphSpec:
             mismatch, or a malformed spec.
     """
     if not isinstance(doc, Mapping) or doc.get("format") != FORMAT_NAME:
-        raise SerializationError(f"not a {FORMAT_NAME!r} document")
+        raise SerializationError(
+            f"not a {FORMAT_NAME!r} document; expected a JSON object with "
+            "'format', 'schema_version' and 'spec' keys"
+        )
     version = doc.get("schema_version")
     if version != SCHEMA_VERSION:
         raise SerializationError(

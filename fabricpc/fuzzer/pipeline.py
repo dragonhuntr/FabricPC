@@ -130,7 +130,9 @@ class GenerationError(RuntimeError):
         )
         super().__init__(
             f"graph {index}: no valid, distinct graph after {attempts} attempts. "
-            f"Last problems:\n  {details}"
+            f"Last problems:\n  {details}\n"
+            "Fix: relax the settings behind the failed check(s) above, or "
+            "raise max_attempts (SR-NF-US-03)."
         )
 
 

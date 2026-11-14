@@ -251,7 +251,9 @@ class GraphSpec:
             if not isinstance(n.name, str) or not n.name:
                 raise SpecError("node name must be a non-empty string", repr(n.name))
             if n.name in seen:
-                raise SpecError("duplicate node name", n.name)
+                raise SpecError(
+                    "duplicate node name: every node name must be unique", n.name
+                )
             seen.add(n.name)
             if n.role not in ROLES:
                 raise SpecError(f"role must be one of {ROLES}, got {n.role!r}", n.name)
