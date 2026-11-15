@@ -248,3 +248,25 @@ def test_property_valid_configs_give_valid_skeletons(cfg, seed):
         return
     for sk in sks:
         assert_valid(sk, cfg)
+
+
+# ----------------------------------------------------- mid-draw crash regression
+@pytest.mark.parametrize("seed", range(6))
+def test_small_clamped_config_never_crashes_mid_draw(seed):
+    """SR-F-05.1-05.3 regression: a tiny clamped batch used to die with
+    ``ValueError: high <= 0`` from numpy when a candidate pool ran out in the
+    middle of a draw (e.g. the clamped input could not be picked as a parent).
+    A dead end must be caught and redrawn like any other failed draw, so the
+    stage either returns a valid skeleton or raises TopologyError - never a
+    numpy internals error."""
+    from fabricpc.fuzzer import ClampedNode
+
+    cfg = GeneratorConfig(
+        num_nodes=(1, 3),
+        clamped_nodes=[
+            ClampedNode("input", "Linear", (16,), in_degree=0, out_degree=1),
+            ClampedNode("output", "Linear", (4,), in_degree=1, out_degree=0),
+        ],
+    )
+    sk = random_dag_topology(cfg, graph_rng(seed, 0))
+    assert_valid(sk, cfg)

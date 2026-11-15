@@ -160,6 +160,12 @@ def _sample_degrees(
     return degrees
 
 
+class _DrawMiss(Exception):
+    """A single draw hit a dead end (no candidate left where an edge was still
+    needed). Not fatal: :func:`random_dag_topology` catches it and retries,
+    the same way it retries a skeleton that fails :func:`skeleton_issues`."""
+
+
 def _pick(
     candidates: Sequence[int],
     count: int,
@@ -178,6 +184,8 @@ def _pick(
     broken.
     """
     source = list(candidates)
+    if count > len(source):
+        raise _DrawMiss()
     pool = source
     if max_out is not None:
         under = [c for c in pool if out_degree.get(c, 0) < max_out]
@@ -273,7 +281,11 @@ def random_dag_topology(config: GeneratorConfig, rng: np.random.Generator) -> Sk
 
     last_issues: List[str] = []
     for _ in range(MAX_DRAWS):
-        skeleton = _draw_once(config, rng, model, edge_prob, rewire_prob)
+        try:
+            skeleton = _draw_once(config, rng, model, edge_prob, rewire_prob)
+        except _DrawMiss:
+            last_issues = ["ran out of legal parents/children mid-draw"]
+            continue
         if skeleton is None:
             last_issues = ["out_degree lower bound could not be met"]
             continue
