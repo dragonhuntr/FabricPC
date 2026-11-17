@@ -1,17 +1,17 @@
 # Graph fuzzer requirement status (Report 1.5)
 
-Audited: **2026-11-16** · Commit: **`ebfbae2`** (`feature/fuzzer-foundation`)
+Audited: **2026-11-16** · Commit: **`9846e7f`** (`feature/fuzzer-foundation`)
 
 ## Headline numbers
 
 | Measure | Result |
 |---|---|
-| Full test suite | **975 passed, 8 skipped, 1 warning** in 351.83 s |
+| Full test suite | **984 passed, 8 skipped, 1 warning** in 352.39 s |
 | Full-suite command | `python -m pytest -q --cov=fabricpc --cov-report=term-missing` |
-| Coverage, whole library | **87%** (6480 statements, 821 missed) |
-| Fuzzer tests only | **305 passed, 2 skipped** in 162.84 s |
+| Coverage, whole library | **87%** (6491 statements, 813 missed) |
+| Fuzzer tests only | **314 passed, 2 skipped** in 154.66 s |
 | Fuzzer command | `python -m pytest tests/test_fuzzer_*.py -q --cov=fabricpc/fuzzer --cov-report=term-missing` |
-| Coverage, `fabricpc/fuzzer` | **90%** (1825 statements, 183 missed) |
+| Coverage, `fabricpc/fuzzer` | **90%** (1836 statements, 175 missed) |
 | Status counts (assessed IDs) | **done 23 · partial 2 · not started 0 · out of scope 10** |
 | Assessed / unassessed | **35 / 59** of the 94 SR-F IDs |
 
@@ -75,12 +75,12 @@ Audited: **2026-11-16** · Commit: **`ebfbae2`** (`feature/fuzzer-foundation`)
 Every SR-NF requirement the repository cites now has an automated check: a
 named pytest test, or a CI step in `.github/workflows/fuzzer-nf.yml` whose
 step name carries the ID. Measured values are from the local runs recorded in
-`TEST_LOG.md` rows 15-22 and 26-30; the CI job adds the ubuntu matrix runs.
+`TEST_LOG.md` rows 15-22, 26-30 and the post-sync re-measurement in rows 31-32; the CI job adds the ubuntu matrix runs.
 
 | ID | Check | Pass/Fail | Measured / test |
 |---|---|---|---|
 | SR-NF-DV-01 | `pre-commit run --all-files` (Ruff + Black) | pass | both hooks Passed, 15.1 s; CI step on py3.11 + 3.13 |
-| SR-NF-DV-02 | `pytest tests/test_fuzzer_*.py --cov=fabricpc/fuzzer --cov-fail-under=80` | pass | **90%** coverage; 305 passed, 2 skipped |
+| SR-NF-DV-02 | `pytest tests/test_fuzzer_*.py --cov=fabricpc/fuzzer --cov-fail-under=80` | pass | **90%** coverage; 314 passed, 2 skipped |
 | SR-NF-DV-03 | `mypy fabricpc/fuzzer` with 0 errors | pass | **0 errors, 17 files** (package fully checked; untyped upstream analyzed silently, no per-file ignores) |
 | SR-NF-DV-04 | every public API documented | pass | `test_sr_nf_dv_04_public_api_has_docstrings` |
 | SR-NF-US-01 | setting docs: meaning + type + default | pass | `test_sr_nf_us_01_settings_document_meaning_type_and_default` |
@@ -98,7 +98,7 @@ step name carries the ID. Measured values are from the local runs recorded in
 | SR-NF-OP-02 | Python 3.11 and 3.13 matrix | wired | `fuzzer-nf.yml` strategy.matrix |
 | SR-NF-OP-03 | CPU JAX | wired | base install ships `jax[cpu]`; no CUDA extra installed |
 | SR-NF-PE-01 | 100 graphs (≤20 hidden nodes) < 2 min | **pass** | **55.8 s** local (`test_fuzzer_perf.py`, `-m slow`) |
-| SR-NF-PE-02 | default CI run < 5 min | **pass** | 162.84 s with coverage locally; CI asserts `elapsed < 300` |
+| SR-NF-PE-02 | default CI run < 5 min | **pass** | 154.66 s with coverage locally (merged tree); CI asserts `elapsed < 300` |
 | SR-NF-CS-01 | docs usable by newcomers | **pass** | README "Graph Fuzzer" section + `examples/demo_presentation2.py --quick` (< 30 s) |
 
 `tests/test_fuzzer_perf.py` is `@pytest.mark.slow`: deselected from the

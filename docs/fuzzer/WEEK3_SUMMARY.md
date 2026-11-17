@@ -1,9 +1,12 @@
 # Week 3 summary — Graph fuzzer (2026-11-10 to 2026-11-16)
 
 Branch `feature/fuzzer-foundation`, pushed to `dragonhuntr/FabricPC`.
-Commits this week: `fd56e40` (save/load hardening) · `ac87ef4` (non-functional
-tests, mypy) · `087edbc` (CI matrix, perf) · `d243b87` (error-message audit) ·
-`ebfbae2` (README manual, demo script, topology fix) · this summary commit.
+Commits this week: `1cd68e2` (save/load hardening) · `2c8749e` (non-functional
+tests, mypy) · `5f2144f` (CI matrix, perf) · `202d4a3` (error-message audit) ·
+`9846e7f` (README manual, demo script, topology fix) · this summary commit.
+Johnny's mixed-node-type work (`35867a1`/`27a6e2a`/`0457a5b`, Nov 16 evening)
+landed on the branch mid-week; our six commits sit on top of it and every
+number below is from the merged tree.
 
 ## What shipped
 
@@ -38,14 +41,14 @@ tests, mypy) · `087edbc` (CI matrix, perf) · `d243b87` (error-message audit) �
    like any other failed draw; regression test over 6 seeds
    (TEST_LOG rows 26-28).
 
-## Measured numbers (2026-11-16, TEST_LOG rows 29-30)
+## Measured numbers (2026-11-16, TEST_LOG rows 31-32)
 
 | Measure | Result | Target |
 |---|---|---|
-| Full test suite | 975 passed, 8 skipped, 351.83 s | — |
-| Fuzzer suite | 305 passed, 2 skipped, 162.84 s | < 300 s (PE-02) ✓ |
-| `fabricpc/fuzzer` coverage | 90% (1825 stmts) | ≥ 80% (DV-02) ✓ |
-| Library coverage | 87% | — |
+| Full test suite | 984 passed, 8 skipped, 352.39 s | — |
+| Fuzzer suite | 314 passed, 2 skipped, 154.66 s | < 300 s (PE-02) ✓ |
+| `fabricpc/fuzzer` coverage | 90% (1836 stmts) | ≥ 80% (DV-02) ✓ |
+| Library coverage | 87% (6491 stmts) | — |
 | mypy on `fabricpc/fuzzer` | 0 errors, 17 files | 0 (DV-03) ✓ |
 | pre-commit (Ruff + Black) | pass, 15.1 s | pass (DV-01) ✓ |
 | 100 graphs (2..20 hidden nodes) | 55.8 s | < 2 min (PE-01) ✓ |
@@ -72,6 +75,9 @@ tests, mypy) · `087edbc` (CI matrix, perf) · `d243b87` (error-message audit) �
 * STATUS.md was refreshed (its SR-F rows were a stale week-0 audit);
   `serialization_options.md` now leads with the A/B/C/D question for the
   sponsor.
+* From Johnny's merged work: `validate()` now rejects clamped nodes whose
+  node type `assign` cannot build, build errors no longer double the node
+  name, and the shape table is guarded (TEST_LOG rows 31-32 cover the sync).
 
 ## Open issues and questions
 
