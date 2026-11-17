@@ -1,0 +1,7 @@
+# Mixed node type demo: every dense node type FabricPC provides
+num_graphs = 5
+seed = 4
+num_nodes = [3, 6]
+in_degree = [1, 3]
+allow_cycles = true
+node_types = ["Linear", "LinearExplicitGrad", "LinearResidual", "SkipConnection", "IdentityNode", "StorkeyHopfield"]
