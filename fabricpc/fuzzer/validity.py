@@ -200,7 +200,12 @@ def _check_builds(spec: GraphSpec) -> list:
     try:
         to_fabricpc(spec)
     except BuildError as exc:
-        return [_issue(str(exc), exc.where, f"build/{exc.stage}")]
+        # BuildError already starts its message with "[where] "; the issue
+        # prints `where` itself, so drop it here to avoid "[h0] [h0]".
+        message = str(exc)
+        if exc.where:
+            message = message.removeprefix(f"[{exc.where}] ")
+        return [_issue(message, exc.where, f"build/{exc.stage}")]
     return []
 
 

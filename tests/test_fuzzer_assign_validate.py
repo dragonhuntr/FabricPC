@@ -16,6 +16,7 @@ from fabricpc.fuzzer import (
 )
 from fabricpc.fuzzer import registry
 from fabricpc.fuzzer.assign import SHAPE_PRESERVING_SLOTS, typed_assign, type_fits
+from fabricpc.fuzzer.config import UNSUPPORTED_TYPES
 from fabricpc.fuzzer.pipeline import DEFAULT_STAGES
 from fabricpc.fuzzer.topology import random_dag_topology
 from fabricpc.fuzzer.validity import validate_spec
@@ -270,3 +271,77 @@ def test_config_rejects_impossible_output_pairs(energy, activation):
     with pytest.raises(ConfigError, match="needs output_activation") as exc:
         GeneratorConfig(output_energy=energy, output_activation=activation).validate()
     assert exc.value.param == "output_activation"
+
+
+# ------------------------------------------------ clamped nodes (fix 1)
+def _clamped(input_type="IdentityNode", output_type="Linear", output_in=1):
+    return (
+        {
+            "role": "input",
+            "node_type": input_type,
+            "shape": [8],
+            "in_degree": 0,
+            "out_degree": 1,
+        },
+        {
+            "role": "output",
+            "node_type": output_type,
+            "shape": [3],
+            "in_degree": output_in,
+            "out_degree": 0,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "clamped",
+    [
+        _clamped(input_type="MaxPool"),
+        _clamped(output_type="ConvNode"),
+        _clamped(output_type="StorkeyHopfield", output_in=2),
+    ],
+)
+def test_config_rejects_clamped_nodes_assign_cannot_build(clamped):
+    with pytest.raises(ConfigError) as exc:
+        GeneratorConfig(num_nodes=(2, 3), clamped_nodes=clamped).validate()
+    assert exc.value.param == "clamped_nodes"
+
+
+# ------------------------------------------------ build error message (fix 2)
+def test_build_error_names_the_node_once():
+    nodes, edges = _base()
+    nodes[1] = NodeSpec("h0", "Linear", (16,), activation="relu", config={"bogus": 1})
+    issue = _issue(nodes, edges)
+    assert (issue.check, issue.where) == ("build/node", "h0")
+    assert not issue.message.startswith("[h0]")
+
+
+# ------------------------------------------- shape table guard (fix 3)
+def _slot_graph(node_type, slot):
+    """input (8,) feeds h0 (node_type, (16,)) through ``slot``."""
+    nodes, edges = _base()
+    nodes[1] = NodeSpec("h0", node_type, (16,))
+    edges[0] = EdgeSpec("input", "h0", slot)
+    if registry.node_class(node_type).get_slots().get("skip") and slot != "skip":
+        # Give the skip slot a same-shape edge (SkipConnection requires one).
+        nodes.insert(1, NodeSpec("h1", "Linear", (16,)))
+        edges += [EdgeSpec("input", "h1", "in"), EdgeSpec("h1", "h0", "skip")]
+    return GraphSpec(tuple(nodes), tuple(edges))
+
+
+def test_every_registered_slot_is_classified():
+    """Fails when FabricPC or the registry gains a summing slot that
+    SHAPE_PRESERVING_SLOTS doesn't list: assign would not match its shapes."""
+    from fabricpc.fuzzer.validity import _check_trains
+
+    for name, cls in sorted(registry.NODE_TYPES.items()):
+        if name in UNSUPPORTED_TYPES:
+            continue
+        for slot in cls.get_slots():
+            if (name, slot) in SHAPE_PRESERVING_SLOTS:
+                continue
+            issues = _check_trains(_slot_graph(name, slot), 1)
+            assert not issues, (
+                f"{name}.{slot} needs matching shapes; add it to "
+                f"SHAPE_PRESERVING_SLOTS ({issues[0]})"
+            )

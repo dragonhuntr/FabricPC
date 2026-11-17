@@ -444,6 +444,7 @@ class GeneratorConfig:
                     f"output in_degree {output_node.in_degree} exceeds the "
                     f"{n_hi + 1} possible sources",
                 )
+        self._check_assignable()
 
         try:
             json.dumps(self.constraints)
@@ -452,6 +453,25 @@ class GeneratorConfig:
                 "constraints", f"must be JSON-serializable ({exc})"
             ) from None
         return self
+
+    def _check_assignable(self) -> None:
+        """Reject clamped nodes the assign stage can never build (SR-NF-US-03)."""
+        # Local import: assign.py imports this module.
+        from fabricpc.fuzzer.assign import type_fits
+
+        for node in self.clamped_nodes:
+            if node.node_type in UNSUPPORTED_TYPES:
+                raise ConfigError(
+                    "clamped_nodes",
+                    f"{node.role} type {node.node_type!r} can't be generated yet "
+                    "(it needs spatial shapes and kernel settings)",
+                )
+            if node.role == "output" and not type_fits(node.node_type, node.in_degree):
+                raise ConfigError(
+                    "clamped_nodes",
+                    f"output type {node.node_type!r} can't take "
+                    f"{node.in_degree} incoming edges",
+                )
 
     # ------------------------------------------------------------- conversion
     def to_dict(self) -> Dict[str, Any]:
